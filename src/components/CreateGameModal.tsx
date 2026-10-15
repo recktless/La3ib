@@ -1,0 +1,569 @@
+import React, { useState, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
+import { 
+  SportType, 
+  SkillLevel, 
+  GenderPreference, 
+  GameVisibility, 
+  KuwaitArea 
+} from '../types';
+import { 
+  X, 
+  Sparkles, 
+  Calculator, 
+  Users, 
+  Check, 
+  Plus, 
+  ShieldCheck, 
+  Calendar,
+  Clock,
+  MapPin,
+  Lock
+} from 'lucide-react';
+
+const KUWAIT_AREAS: KuwaitArea[] = [
+  'Kuwait City',
+  'Salmiya',
+  'Shuwaikh',
+  'Hawalli',
+  'Mishref',
+  'Yarmouk',
+  'Jabriya',
+  'Sabhan',
+  'Mahboula',
+  'Abu Hasaniya',
+  'Jahra',
+  'Ardhiya'
+];
+
+export const CreateGameModal: React.FC = () => {
+  const { 
+    createGameModalOpen, 
+    setCreateGameModalOpen, 
+    createGamePrefill, 
+    setCreateGamePrefill,
+    createGame, 
+    players, 
+    currentUser,
+    firebaseUser,
+    authStatus,
+    setAuthModalOpen,
+    setAuthModalMode,
+    t 
+  } = useApp();
+
+  const [title, setTitle] = useState('');
+  const [sport, setSport] = useState<SportType>('Football');
+  const [date, setDate] = useState('2026-09-25');
+  const [startTime, setStartTime] = useState('20:00');
+  const [endTime, setEndTime] = useState('21:30');
+  const [courtName, setCourtName] = useState('Mishref Youth Center Stadium');
+  const [area, setArea] = useState<KuwaitArea>('Mishref');
+  const [address, setAddress] = useState('Block 6, Mishref Oasis Road');
+  const [isIndoor, setIsIndoor] = useState(false);
+  const [maxPlayers, setMaxPlayers] = useState(10);
+  const [totalCourtCostKWD, setTotalCourtCostKWD] = useState(15.000);
+  const [skillLevel, setSkillLevel] = useState<SkillLevel>('Intermediate');
+  const [gender, setGender] = useState<GenderPreference>('Everyone');
+  const [visibility, setVisibility] = useState<GameVisibility>('Public');
+  const [description, setDescription] = useState('');
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [isLinkedLi3ibBooking, setIsLinkedLi3ibBooking] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Initialize or prefill from Li3ib booking
+  useEffect(() => {
+    if (createGamePrefill) {
+      if (createGamePrefill.title) setTitle(createGamePrefill.title);
+      if (createGamePrefill.sport) setSport(createGamePrefill.sport);
+      if (createGamePrefill.date) setDate(createGamePrefill.date);
+      if (createGamePrefill.startTime) setStartTime(createGamePrefill.startTime);
+      if (createGamePrefill.endTime) setEndTime(createGamePrefill.endTime);
+      if (createGamePrefill.courtName) setCourtName(createGamePrefill.courtName);
+      if (createGamePrefill.area) setArea(createGamePrefill.area);
+      if (createGamePrefill.address) setAddress(createGamePrefill.address);
+      if (createGamePrefill.isIndoor !== undefined) setIsIndoor(createGamePrefill.isIndoor);
+      if (createGamePrefill.maxPlayers) setMaxPlayers(createGamePrefill.maxPlayers);
+      if (createGamePrefill.totalCourtCostKWD) setTotalCourtCostKWD(createGamePrefill.totalCourtCostKWD);
+      if (createGamePrefill.skillLevel) setSkillLevel(createGamePrefill.skillLevel);
+      if (createGamePrefill.description) setDescription(createGamePrefill.description);
+      setIsLinkedLi3ibBooking(!!createGamePrefill.linkedBookingId);
+    } else {
+      setTitle('Friday Night Football ⚽');
+      setSport('Football');
+      setDate('2026-09-25');
+      setStartTime('20:00');
+      setEndTime('21:30');
+      setCourtName('Mishref Youth Center Stadium');
+      setArea('Mishref');
+      setAddress('Block 6, Mishref Oasis Road');
+      setIsIndoor(false);
+      setMaxPlayers(10);
+      setTotalCourtCostKWD(15.000);
+      setSkillLevel('Intermediate');
+      setGender('Everyone');
+      setVisibility('Public');
+      setDescription('Looking for intermediate players. Nothing too serious, just a good competitive match.');
+      setIsLinkedLi3ibBooking(false);
+    }
+  }, [createGamePrefill, createGameModalOpen]);
+
+  if (!createGameModalOpen) return null;
+
+  // Real-time automatic split calculation: Total court cost ÷ number of players = player's share
+  const pricePerPlayer = maxPlayers > 0 
+    ? parseFloat((totalCourtCostKWD / maxPlayers).toFixed(3))
+    : 0;
+
+  const toggleFriend = (id: string) => {
+    setSelectedFriendIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setErrorMessage(t('Please enter a game title.', 'يرجى إدخال اسم المباراة.'));
+      return;
+    }
+    if (!date) {
+      setErrorMessage(t('Please select a game date.', 'يرجى تحديد تاريخ المباراة.'));
+      return;
+    }
+    if (!startTime) {
+      setErrorMessage(t('Please select a start time.', 'يرجى تحديد وقت البدء.'));
+      return;
+    }
+    if (!courtName.trim()) {
+      setErrorMessage(t('Please provide a venue or court name.', 'يرجى إدخال اسم الملعب.'));
+      return;
+    }
+    if (!maxPlayers || maxPlayers < 2) {
+      setErrorMessage(t('Max players must be at least 2.', 'الحد الأدنى لعدد اللاعبين هو 2.'));
+      return;
+    }
+
+    if (!currentUser || (!firebaseUser && authStatus === 'unauthenticated')) {
+      setErrorMessage(t('Please sign in to your account to publish a game.', 'يرجى تسجيل الدخول لنشر المباراة.'));
+      setAuthModalMode('login');
+      setAuthModalOpen(true);
+      return;
+    }
+
+    setErrorMessage(null);
+    setSubmitting(true);
+    console.log('[CreateGame Diagnostic] Starting game submission, submitting set to true');
+
+    try {
+      await createGame({
+        title: title.trim(),
+        sport,
+        date,
+        startTime,
+        endTime,
+        courtName: courtName.trim(),
+        area,
+        address: address.trim(),
+        coordinates: { x: 50 + Math.floor(Math.random() * 20 - 10), y: 50 + Math.floor(Math.random() * 20 - 10) },
+        isIndoor,
+        maxPlayers: Number(maxPlayers),
+        totalCourtCostKWD: Number(totalCourtCostKWD),
+        pricePerPlayerKWD: pricePerPlayer,
+        skillLevel,
+        gender,
+        visibility,
+        status: 'Open',
+        description: description.trim() || undefined,
+        linkedBookingId: createGamePrefill?.linkedBookingId,
+        cancellationPolicy: 'Full refund if cancelled at least 4 hours before kickoff.'
+      });
+
+      console.log('[CreateGame Diagnostic] createGame operation succeeded');
+      setCreateGamePrefill(null);
+    } catch (err: any) {
+      console.error('[CreateGame Diagnostic] Failed to create game:', {
+        code: err?.code,
+        message: err?.message || String(err)
+      });
+      let friendlyMsg = t('Failed to save game to Cloud Firestore. Please check your connection and try again.', 'فشل حفظ المباراة في قاعدة البيانات. يرجى التحقق من الاتصال والمحاولة مجدداً.');
+      if (err?.message?.includes('timed out') || err?.message?.includes('TIMEOUT')) {
+        friendlyMsg = t('Operation timed out connecting to Firestore. Please check your connection and try again.', 'انتهت مهلة الاتصال بقاعدة البيانات. يرجى التحقق من الاتصال والمحاولة مجدداً.');
+      } else if (err?.message?.includes('permission-denied') || err?.message?.includes('PERMISSION_DENIED')) {
+        friendlyMsg = t('Permission denied: You must be signed in with a valid account to publish a game.', 'تم رفض الصلاحية: يجب تسجيل الدخول بحساب صالح لنشر المباراة.');
+      } else if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) friendlyMsg = parsed.error;
+        } catch {
+          friendlyMsg = err.message;
+        }
+      }
+      setErrorMessage(friendlyMsg);
+    } finally {
+      setSubmitting(false);
+      console.log('[CreateGame Diagnostic] Loading state reset (submitting=false)');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+      <div 
+        className="relative w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/80">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+              +
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold text-white">
+                {t('Create a Game in Kuwait', 'إنشاء مباراة جديدة في الكويت')}
+              </h2>
+              {isLinkedLi3ibBooking && (
+                <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  {t('Imported seamlessly from your Li3ib booking', 'تم استيراد بيانات الحجز من Li3ib بنجاح')}
+                </p>
+              )}
+            </div>
+          </div>
+          <button 
+            onClick={() => {
+              setCreateGameModalOpen(false);
+              setCreateGamePrefill(null);
+            }}
+            className="p-2 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
+          {/* Game Title */}
+          <div>
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+              {t('Game Name', 'اسم المباراة')} *
+            </label>
+            <input 
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Friday Football, Padel Smash 2v2..."
+              className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Sport & Skill Level */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Sport', 'الرياضة')}
+              </label>
+              <select
+                value={sport}
+                onChange={(e) => setSport(e.target.value as SportType)}
+                className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none"
+              >
+                <option value="Football">⚽ Football (كرة القدم)</option>
+                <option value="Padel">🎾 Padel (بادل)</option>
+                <option value="Basketball">🏀 Basketball (كرة السلة)</option>
+                <option value="Volleyball">🏐 Volleyball (كرة الطائرة)</option>
+                <option value="Tennis">🎾 Tennis (تنس)</option>
+                <option value="Badminton">🏸 Badminton (ريشة)</option>
+                <option value="Other">🏆 Other (أخرى)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Skill Level', 'المستوى الرياضي')}
+              </label>
+              <select
+                value={skillLevel}
+                onChange={(e) => setSkillLevel(e.target.value as SkillLevel)}
+                className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none"
+              >
+                <option value="Beginner">Beginner (مبتدئ)</option>
+                <option value="Casual">Casual (ودي / ترويحي)</option>
+                <option value="Intermediate">Intermediate (متوسط)</option>
+                <option value="Advanced">Advanced (متقدم)</option>
+                <option value="Competitive">Competitive (تنافسي عالي)</option>
+                <option value="Any level">Any level (جميع المستويات)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Schedule: Date & Times */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Date', 'التاريخ')}
+              </label>
+              <input 
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Start Time', 'وقت البداية')}
+              </label>
+              <input 
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('End Time', 'وقت النهاية')}
+              </label>
+              <input 
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          {/* Court & Location */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Court / Venue', 'اسم الملعب / المرفق')}
+              </label>
+              <input 
+                type="text"
+                required
+                value={courtName}
+                onChange={(e) => setCourtName(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Kuwait Area', 'المنطقة في الكويت')}
+              </label>
+              <select
+                value={area}
+                onChange={(e) => setArea(e.target.value as KuwaitArea)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+              >
+                {KUWAIT_AREAS.map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* AUTOMATIC SPLIT PRICING CALCULATOR */}
+          <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-emerald-400" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                {t('Automatic Cost Split Calculator', 'حاسبة تقاسم تكلفة الحجز التلقائية')}
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">
+                  {t('Total Court Cost (KWD)', 'إجمالي تكلفة الملعب (د.ك)')}
+                </label>
+                <input 
+                  type="number"
+                  step="0.500"
+                  min="0"
+                  value={totalCourtCostKWD}
+                  onChange={(e) => setTotalCourtCostKWD(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-neutral-400 mb-1">
+                  {t('Max Players', 'العدد الأقصى للاعبين')}
+                </label>
+                <input 
+                  type="number"
+                  min="2"
+                  max="30"
+                  value={maxPlayers}
+                  onChange={(e) => setMaxPlayers(parseInt(e.target.value) || 2)}
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="bg-emerald-950/50 border border-emerald-800/80 rounded-xl p-2.5 flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-bold text-emerald-400">
+                  {t('Calculated Share per Player', 'حصة كل لاعب محسوبة')}
+                </span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="text-lg font-black text-white">{pricePerPlayer.toFixed(3)}</span>
+                  <span className="text-xs font-bold text-emerald-400">KWD</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-neutral-400">
+              Formula: {totalCourtCostKWD.toFixed(3)} KWD ÷ {maxPlayers} players = <strong className="text-emerald-400">{pricePerPlayer.toFixed(3)} KWD</strong> per player upon joining.
+            </p>
+          </div>
+
+          {/* Gender & Visibility */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Gender Preference', 'الجنس')}
+              </label>
+              <div className="flex rounded-xl bg-neutral-950 p-1 border border-neutral-800">
+                {(['Everyone', 'Men', 'Women'] as GenderPreference[]).map(g => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGender(g)}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                      gender === g ? 'bg-emerald-500 text-neutral-950 font-bold' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {g === 'Everyone' ? t('Everyone', 'الجميع') : g === 'Men' ? t('Men', 'رجال') : t('Women', 'نساء')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+                {t('Game Visibility', 'نوع النشر')}
+              </label>
+              <div className="flex rounded-xl bg-neutral-950 p-1 border border-neutral-800">
+                {(['Public', 'Private', 'Invite only'] as GameVisibility[]).map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setVisibility(v)}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                      visibility === v ? 'bg-emerald-500 text-neutral-950 font-bold' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {v === 'Public' ? t('Public', 'عام') : v === 'Private' ? t('Private', 'خاص') : t('Invite', 'دعوات')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Invite Friends Checklist */}
+          <div>
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-2">
+              {t('Quick Invite Friends (Optional)', 'دعوة سريعة للأصدقاء (اختياري)')}
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {players.filter(p => p.id !== currentUser.id).slice(0, 6).map(friend => {
+                const isSelected = selectedFriendIds.includes(friend.id);
+                return (
+                  <div
+                    key={friend.id}
+                    onClick={() => toggleFriend(friend.id)}
+                    className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-all ${
+                      isSelected 
+                        ? 'bg-emerald-950/60 border-emerald-500 text-white' 
+                        : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
+                    }`}
+                  >
+                    <img 
+                      src={friend.avatar} 
+                      alt={friend.name}
+                      className="w-7 h-7 rounded-full object-cover shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white truncate">{friend.name.split(' ')[0]}</p>
+                      <p className="text-[10px] text-neutral-500 truncate">{friend.area}</p>
+                    </div>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Organizer Description */}
+          <div>
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
+              {t('Description / Organizer Notes', 'رسالة المنظم للمشاركين')}
+            </label>
+            <textarea 
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t('Looking for intermediate players. Nothing too serious, just a good game...', 'نبحث عن لاعبين بمستوى متوسط، اللعب حماسي وودي...')}
+              className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl p-3 text-sm text-white placeholder-neutral-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Error Message Banner */}
+          {errorMessage && (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2">
+              <span className="leading-relaxed">{errorMessage}</span>
+              <button 
+                type="button" 
+                onClick={() => setErrorMessage(null)} 
+                className="text-rose-400 hover:text-rose-200 transition-colors shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Submit Action */}
+          <div className="pt-3 border-t border-neutral-800 flex items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] text-neutral-400 block">{t('Share per player:', 'حصة كل لاعب:')}</span>
+              <span className="text-lg font-black text-emerald-400">{pricePerPlayer.toFixed(3)} KWD</span>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateGameModalOpen(false);
+                  setCreateGamePrefill(null);
+                  setErrorMessage(null);
+                }}
+                disabled={submitting}
+                className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-neutral-300 font-bold text-xs"
+              >
+                {t('Cancel', 'إلغاء')}
+              </button>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {submitting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-neutral-900 border-t-transparent rounded-full animate-spin" />
+                    <span>{t('Saving to Firestore...', 'جاري الحفظ في Firestore...')}</span>
+                  </>
+                ) : (
+                  t('Post Game & Open Spots', 'نشر المباراة وفتح الحجز')
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,395 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Athlete/player profile in Kuwait sports network",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 100 },
+        "nameAr": { "type": "string", "maxLength": 100 },
+        "username": { "type": "string", "maxLength": 50 },
+        "avatar": { "type": "string", "maxLength": 500 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "area": { "type": "string", "maxLength": 80 },
+        "bio": { "type": "string", "maxLength": 300 },
+        "favoriteSports": { "type": "array" },
+        "skillLevels": { "type": "object" },
+        "reliabilityRate": { "type": "number" },
+        "reliabilityTier": { "type": "string", "enum": ["Super Reliable", "Reliable", "Good", "Needs Improvement"] },
+        "gamesPlayed": { "type": "number" },
+        "gamesHosted": { "type": "number" },
+        "badges": { "type": "array" },
+        "role": { "type": "string", "enum": ["player", "organizer", "admin"] },
+        "showAge": { "type": "boolean" },
+        "showPhone": { "type": "boolean" },
+        "allowDirectInvites": { "type": "boolean" },
+        "followerCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "friendCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "username", "role", "createdAt"]
+    },
+    "UserFollowing": {
+      "title": "UserFollowing",
+      "description": "User followed by another player in the athletic community",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "UserFollower": {
+      "title": "UserFollower",
+      "description": "Follower relationship record for an athlete",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "UserFriend": {
+      "title": "UserFriend",
+      "description": "Established mutual friendship connection between athletes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "UserFriendRequest": {
+      "title": "UserFriendRequest",
+      "description": "Pending incoming friend request between athletes",
+      "type": "object",
+      "properties": {
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "recipientId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["requesterId", "recipientId", "status", "createdAt"]
+    },
+    "PrivateAccount": {
+      "title": "PrivateAccount",
+      "description": "Sensitive private account details accessible only by owner or admin",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Game": {
+      "title": "Game",
+      "description": "Pickup match or community game",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "sport": { "type": "string", "enum": ["Football", "Padel", "Basketball", "Volleyball", "Tennis", "Badminton"] },
+        "date": { "type": "string", "maxLength": 50 },
+        "startTime": { "type": "string", "maxLength": 20 },
+        "endTime": { "type": "string", "maxLength": 20 },
+        "courtName": { "type": "string", "maxLength": 120 },
+        "area": { "type": "string", "maxLength": 80 },
+        "isIndoor": { "type": "boolean" },
+        "maxPlayers": { "type": "number" },
+        "currentPlayers": { "type": "number" },
+        "totalCourtPriceKWD": { "type": "number" },
+        "pricePerPlayerKWD": { "type": "number" },
+        "organizerId": { "type": "string", "maxLength": 128 },
+        "organizerName": { "type": "string", "maxLength": 100 },
+        "participantIds": { "type": "array" },
+        "skillLevel": { "type": "string", "enum": ["All Levels", "Beginner", "Intermediate", "Advanced", "Competitive"] },
+        "gender": { "type": "string", "enum": ["All Welcome", "Men Only", "Women Only"] },
+        "description": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Open", "Almost Full", "Full", "Completed", "Cancelled"] },
+        "linkedBookingId": { "type": "string", "maxLength": 128 },
+        "cancellationPolicy": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "sport", "date", "startTime", "endTime", "courtName", "area", "maxPlayers", "organizerId", "totalCourtPriceKWD", "pricePerPlayerKWD", "status", "createdAt"]
+    },
+    "GameParticipant": {
+      "title": "GameParticipant",
+      "description": "Record of a user joining a specific match roster",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userAvatar": { "type": "string", "maxLength": 500 },
+        "paymentStatus": { "type": "string", "enum": ["Paid", "Pending", "Waived", "Refunded"] },
+        "paymentMethod": { "type": "string", "enum": ["KNET", "ApplePay", "CreditCard", "HostWaived"] },
+        "amountKWD": { "type": "number" },
+        "transactionId": { "type": "string", "maxLength": 128 },
+        "attended": { "type": "boolean" },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["id", "gameId", "userId", "userName", "paymentStatus", "joinedAt"]
+    },
+    "GameInvite": {
+      "title": "GameInvite",
+      "description": "Scalable subcollection game invitation sent by match organizer to an athlete",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "inviterId": { "type": "string", "maxLength": 128 },
+        "inviteeId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined", "cancelled"] },
+        "createdAt": { "type": "string" },
+        "respondedAt": { "type": "string" }
+      },
+      "required": ["id", "gameId", "inviterId", "inviteeId", "status", "createdAt"]
+    },
+    "Court": {
+      "title": "Court",
+      "description": "Sports venue or facility court in Kuwait",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "nameAr": { "type": "string", "maxLength": 120 },
+        "provider": { "type": "string", "enum": ["Li3ib", "DirectVenue"] },
+        "sport": { "type": "string", "maxLength": 50 },
+        "area": { "type": "string", "maxLength": 80 },
+        "pricePerHourKWD": { "type": "number" },
+        "isIndoor": { "type": "boolean" },
+        "image": { "type": "string", "maxLength": 500 },
+        "amenities": { "type": "array" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" }
+      },
+      "required": ["id", "name", "provider", "sport", "area", "pricePerHourKWD"]
+    },
+    "CourtBooking": {
+      "title": "CourtBooking",
+      "description": "Reserved venue court booking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "courtId": { "type": "string", "maxLength": 128 },
+        "courtName": { "type": "string", "maxLength": 120 },
+        "organizerId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 50 },
+        "timeSlot": { "type": "string", "maxLength": 50 },
+        "totalPriceKWD": { "type": "number" },
+        "status": { "type": "string", "enum": ["confirmed", "cancelled", "posted_as_game"] },
+        "bookingReference": { "type": "string", "maxLength": 100 },
+        "linkedGameId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "courtId", "courtName", "organizerId", "date", "timeSlot", "totalPriceKWD", "status", "bookingReference", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time communication in a game chat room",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "senderAvatar": { "type": "string", "maxLength": 500 },
+        "text": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "isAnnouncement": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "gameId", "senderId", "senderName", "text", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System or social alert for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["game_invite", "spot_confirmed", "payment_receipt", "game_cancelled", "chat_mention", "reminder"] },
+        "title": { "type": "string", "maxLength": 150 },
+        "titleAr": { "type": "string", "maxLength": 150 },
+        "message": { "type": "string", "maxLength": 500 },
+        "messageAr": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "read": { "type": "boolean" },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "title", "message", "read", "createdAt"]
+    },
+    "BlockedPlayer": {
+      "title": "BlockedPlayer",
+      "description": "Blocked user record to restrict mutual community interactions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "blockedUserId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "blockedUserId", "createdAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Community moderation and safety flag",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "reporterId": { "type": "string", "maxLength": 128 },
+        "reportedUserId": { "type": "string", "maxLength": 128 },
+        "reportedGameId": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "enum": ["spam", "harassment", "inappropriate_behavior", "fake_profile", "scam_or_fraud", "unsafe_behavior", "other"] },
+        "details": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["open", "reviewed", "resolved", "dismissed"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "reporterId", "reason", "status", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment ledger entry for court share or booking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "amountKWD": { "type": "number" },
+        "method": { "type": "string", "enum": ["KNET", "ApplePay", "CreditCard"] },
+        "bankName": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["Pending", "Captured", "Failed", "Refunded"] },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "gameId", "amountKWD", "method", "status", "referenceId", "createdAt"]
+    },
+    "GamePayment": {
+      "title": "GamePayment",
+      "description": "Provider-agnostic internal payment record for a game participant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "gameId": { "type": "string" },
+        "userId": { "type": "string" },
+        "organizerId": { "type": "string" },
+        "amountKWD": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "enum": ["KWD"] },
+        "status": {
+          "type": "string",
+          "enum": ["unpaid", "pending", "paid", "refunded", "failed", "cancelled"]
+        },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "paidAt": { "type": "string" },
+        "refundedAt": { "type": "string" },
+        "provider": { "type": "string" },
+        "providerPaymentId": { "type": "string" },
+        "providerTransactionId": { "type": "string" }
+      },
+      "required": ["id", "gameId", "userId", "organizerId", "amountKWD", "currency", "status", "createdAt"]
+    },
+    "UsernameReservation": {
+      "title": "UsernameReservation",
+      "description": "Unique username claim document for athlete profile handles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "username": { "type": "string", "maxLength": 50 },
+        "normalized": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "username", "normalized", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/usernames/{normalizedUsername}": {
+      "schema": { "$ref": "#/entities/UsernameReservation" },
+      "description": "Case-insensitive unique username reservation collection"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User public profile collection"
+    },
+    "/users/{userId}/following/{targetUserId}": {
+      "schema": { "$ref": "#/entities/UserFollowing" },
+      "description": "Athletes followed by this user"
+    },
+    "/users/{userId}/blocked/{blockedUserId}": {
+      "schema": { "$ref": "#/entities/BlockedPlayer" },
+      "description": "Blocked users subcollection for mutual community interaction restrictions"
+    },
+    "/users/{userId}/followers/{followerUserId}": {
+      "schema": { "$ref": "#/entities/UserFollower" },
+      "description": "Athletes following this user"
+    },
+    "/users/{userId}/friends/{friendUserId}": {
+      "schema": { "$ref": "#/entities/UserFriend" },
+      "description": "Mutual friends of this user"
+    },
+    "/users/{userId}/friendRequests/{requesterUserId}": {
+      "schema": { "$ref": "#/entities/UserFriendRequest" },
+      "description": "Pending incoming friend requests for this user"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/PrivateAccount" },
+      "description": "Private account data including sensitive email"
+    },
+    "/games/{gameId}": {
+      "schema": { "$ref": "#/entities/Game" },
+      "description": "Community pickup matches"
+    },
+    "/games/{gameId}/invites/{inviteeUserId}": {
+      "schema": { "$ref": "#/entities/GameInvite" },
+      "description": "Scalable game invitations for matches sent to athletes"
+    },
+    "/games/{gameId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time chat messages subcollection for a specific game"
+    },
+    "/games/{gameId}/payments/{userId}": {
+      "schema": { "$ref": "#/entities/GamePayment" },
+      "description": "Participant payment records for a specific game"
+    },
+    "/gameParticipants/{participantId}": {
+      "schema": { "$ref": "#/entities/GameParticipant" },
+      "description": "Player match attendance records"
+    },
+    "/courts/{courtId}": {
+      "schema": { "$ref": "#/entities/Court" },
+      "description": "Sports facilities & court directory"
+    },
+    "/courtBookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/CourtBooking" },
+      "description": "Court venue reservations"
+    },
+    "/chatMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Game match messaging"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notification alerts"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Community moderation and safety reports"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Transaction payment log"
+    }
+  }
+}

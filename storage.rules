@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // User profile images: /users/{userId}/profile.jpg
+    match /users/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null 
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024 // 5MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Venue photos: /venues/{venueId}/{fileName}
+    match /venues/{venueId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          request.auth.token.email == "Khalidalami5555@gmail.com" ||
+          firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid))
+        )
+        && request.resource.size < 10 * 1024 * 1024 // 10MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

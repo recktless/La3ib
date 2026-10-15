@@ -1,0 +1,384 @@
+export type SportType = 
+  | 'Football' 
+  | 'Padel' 
+  | 'Basketball' 
+  | 'Volleyball' 
+  | 'Tennis' 
+  | 'Badminton' 
+  | 'Other';
+
+export type SkillLevel = 
+  | 'Beginner' 
+  | 'Casual' 
+  | 'Intermediate' 
+  | 'Advanced' 
+  | 'Competitive' 
+  | 'Any level';
+
+export type GenderPreference = 'Everyone' | 'Men' | 'Women';
+
+export type GameVisibility = 'Public' | 'Private' | 'Invite only';
+
+export type GameStatus = 'Open' | 'Almost Full' | 'Full' | 'Completed' | 'Cancelled';
+
+export type PaymentStatus = 
+  | 'unpaid'
+  | 'pending'
+  | 'paid'
+  | 'refunded'
+  | 'failed'
+  | 'cancelled'
+  | 'Paid'
+  | 'Pending'
+  | 'Refunded'
+  | 'Failed';
+
+export type KuwaitArea = 
+  | 'Kuwait City' 
+  | 'Salmiya' 
+  | 'Shuwaikh' 
+  | 'Hawalli' 
+  | 'Mishref' 
+  | 'Yarmouk' 
+  | 'Jabriya' 
+  | 'Sabhan' 
+  | 'Mahboula' 
+  | 'Abu Hasaniya' 
+  | 'Jahra' 
+  | 'Ardhiya';
+
+export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'demo';
+
+export interface PrivateAccountData {
+  email: string;
+  phone?: string;
+  uid: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  uid?: string;
+  name: string;
+  nameAr?: string;
+  username: string;
+  email?: string;
+  avatar: string;
+  photoURL?: string;
+  area: KuwaitArea;
+  bio: string;
+  favoriteSports: SportType[];
+  skills: { [key in SportType]?: SkillLevel };
+  gamesPlayed: number;
+  gamesHosted: number;
+  attendanceRate: number; // e.g. 98 for 98%
+  isOrganizer?: boolean;
+  isAdmin?: boolean;
+  isFollowing?: boolean;
+  isDemoUser?: boolean;
+  followerCount?: number;
+  followingCount?: number;
+  friendCount?: number;
+  age?: number;
+  privacy: {
+    showAge: boolean;
+    showPhone: boolean;
+    allowDirectInvites: boolean;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CourtBooking {
+  id: string;
+  courtId: string;
+  courtName: string;
+  sport: SportType;
+  area: KuwaitArea;
+  address: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // e.g. "20:00"
+  endTime: string; // e.g. "21:30"
+  totalCostKWD: number;
+  bookingRef: string;
+  bookedAt: string;
+  isIndoor: boolean;
+  courtImage: string;
+  hasBeenPostedAsGame?: boolean;
+}
+
+export interface GameParticipant {
+  userId: string;
+  name: string;
+  username: string;
+  avatar: string;
+  skill: SkillLevel;
+  paymentStatus: PaymentStatus;
+  paidAmountKWD: number;
+  joinedAt: string;
+  paymentMethod?: 'KNET' | 'Apple Pay' | 'Credit Card';
+  attendanceConfirmed?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  gameId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  senderPhotoURL?: string;
+  text: string;
+  timestamp: string;
+  createdAtISO?: string;
+  isAnnouncement?: boolean;
+}
+
+export interface Game {
+  id: string;
+  title: string;
+  sport: SportType;
+  date: string; // e.g. "2026-09-25"
+  startTime: string; // "20:00"
+  endTime: string; // "21:30"
+  courtName: string;
+  area: KuwaitArea;
+  address: string;
+  coordinates: { x: number; y: number }; // Relative position on Kuwait map (0 to 100)
+  isIndoor: boolean;
+  maxPlayers: number;
+  organizer: UserProfile;
+  participants: GameParticipant[];
+  participantIds?: string[];
+  totalCourtCostKWD: number;
+  pricePerPlayerKWD: number;
+  skillLevel: SkillLevel;
+  gender: GenderPreference;
+  visibility: GameVisibility;
+  status: GameStatus;
+  moderated?: boolean;
+  moderatedAt?: string;
+  moderatedBy?: string;
+  moderationReason?: string;
+  description?: string;
+  linkedBookingId?: string;
+  createdAt: string;
+  cancellationPolicy: string;
+}
+
+export interface Court {
+  id: string;
+  name: string;
+  nameAr: string;
+  sport: SportType;
+  area: KuwaitArea;
+  address: string;
+  rating: number;
+  reviewsCount: number;
+  pricePerHourKWD: number;
+  isIndoor: boolean;
+  image: string;
+  amenities: string[];
+  coordinates: { x: number; y: number };
+  availableSlots: {
+    id: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    priceKWD: number;
+  }[];
+}
+
+export type NotificationType = 
+  | 'game_join'
+  | 'game_leave'
+  | 'game_full'
+  | 'game_almost_full'
+  | 'chat_message'
+  | 'friend_request'
+  | 'friend_request_accepted'
+  | 'game_invite';
+
+export type DemoNotificationType = 
+  | NotificationType
+  | 'invite'
+  | 'joined'
+  | 'payment'
+  | 'reminder'
+  | 'booking'
+  | 'chat'
+  | 'announcement';
+
+export interface AppNotification {
+  id: string;
+  userId?: string;
+  type: DemoNotificationType;
+  title: string;
+  titleAr?: string;
+  body?: string;
+  message?: string;
+  messageAr?: string;
+  timestamp?: string;
+  read: boolean;
+  gameId?: string;
+  actorId?: string;
+  actorName?: string;
+  actorPhotoURL?: string;
+  createdAt?: any;
+  createdAtISO?: string;
+  actionUrl?: string;
+}
+
+export type GameInviteStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+
+export interface GameInvite {
+  id: string; // inviteeId
+  gameId: string;
+  inviterId: string;
+  inviteeId: string;
+  status: GameInviteStatus;
+  createdAt: string;
+  respondedAt?: string;
+  // Denormalized preview fields for display without requiring multiple lookups
+  gameTitle?: string;
+  gameSport?: SportType;
+  gameDate?: string;
+  gameStartTime?: string;
+  gameCourtName?: string;
+  gameArea?: KuwaitArea;
+  gamePricePerPlayerKWD?: number;
+  inviterName?: string;
+  inviterAvatar?: string;
+  inviteeName?: string;
+  inviteeAvatar?: string;
+}
+
+export interface FriendRelationship {
+  userId: string;
+  createdAt: string;
+}
+
+export type ReportReason = 
+  | 'spam'
+  | 'harassment'
+  | 'inappropriate_behavior'
+  | 'fake_profile'
+  | 'scam_or_fraud'
+  | 'unsafe_behavior'
+  | 'other';
+
+export type ReportStatus = 'open' | 'reviewing' | 'resolved' | 'dismissed';
+
+export interface ReportDocument {
+  id: string;
+  reporterId: string;
+  reportedUserId?: string;
+  reportedGameId?: string;
+  reason: ReportReason;
+  details?: string;
+  status: ReportStatus;
+  createdAt: string;
+  updatedAt?: string;
+  moderatorId?: string;
+  resolution?: string;
+  dismissalReason?: string;
+  resolvedAt?: string;
+  dismissedAt?: string;
+  reviewedAt?: string;
+}
+
+export type ModerationTargetType = 'user' | 'game' | 'report';
+
+export type ModerationAction = 
+  | 'review_report'
+  | 'resolve_report'
+  | 'dismiss_report'
+  | 'cancel_game'
+  | 'disable_game';
+
+export interface ModerationLogEntry {
+  id: string;
+  moderatorId: string;
+  action: ModerationAction;
+  targetType: ModerationTargetType;
+  targetId: string;
+  reportId?: string;
+  reason?: string;
+  resolution?: string;
+  createdAt: string;
+  createdAtISO: string;
+}
+
+export interface BlockedPlayerRecord {
+  id?: string;
+  userId: string;
+  blockedUserId: string;
+  createdAt: string;
+}
+
+export interface FriendRequest {
+  id?: string;
+  requesterId: string;
+  recipientId: string;
+  createdAt: string;
+  status: 'pending';
+  requesterName?: string;
+  requesterUsername?: string;
+  requesterAvatar?: string;
+  requesterArea?: KuwaitArea;
+  requesterSports?: SportType[];
+  requesterSkills?: { [key in SportType]?: SkillLevel };
+}
+
+export type FriendshipStatus = 'none' | 'outgoing_request' | 'incoming_request' | 'friends';
+
+export interface ReportItem {
+  id: string;
+  targetId: string;
+  targetType: 'game' | 'user';
+  reason: string;
+  timestamp: string;
+  resolved: boolean;
+}
+
+export interface PlayerActivityItem {
+  gameId: string;
+  sport: SportType;
+  role: 'hosted' | 'played';
+  date: string;
+  startTime?: string;
+  courtName?: string;
+  area?: KuwaitArea;
+  title: string;
+}
+
+export interface PlayerActivityStats {
+  gamesPlayed: number;
+  gamesHosted: number;
+  upcomingGames: number;
+  sportsPlayed: SportType[];
+  recentActivities: PlayerActivityItem[];
+}
+
+export interface GamePayment {
+  id: string; // userId is the document ID under games/{gameId}/payments/{userId}
+  gameId: string;
+  userId: string;
+  organizerId: string;
+
+  amountKWD: number;
+  currency: 'KWD';
+
+  status: PaymentStatus;
+
+  createdAt: string;
+  updatedAt?: string;
+  paidAt?: string;
+  refundedAt?: string;
+
+  // Reserved for future payment provider integration.
+  provider?: string;
+  providerPaymentId?: string;
+  providerTransactionId?: string;
+}
+

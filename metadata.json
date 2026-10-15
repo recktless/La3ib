@@ -1,0 +1,6 @@
+{
+  "name": "La3ib (لعيب)",
+  "description": "Kuwait's premier sports social platform for booking courts via Li3ib, discovering pickup games, splitting payments with KNET, and connecting with local players.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

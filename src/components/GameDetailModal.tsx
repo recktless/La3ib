@@ -27,7 +27,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary } from '../lib/firebase';
-import { ChatMessage, GameInvite, ReportReason } from '../types';
+import { ChatMessage, GameInvite, ReportReason, resolvePlayerAvatar } from '../types';
 
 const GAME_REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'inappropriate_behavior', en: 'Inappropriate or offensive behavior', ar: 'سلوك مسيء أو غير لائق' },
@@ -513,7 +513,7 @@ export const GameDetailModal: React.FC = () => {
               <div className="flex items-center justify-between p-3.5 bg-neutral-950 rounded-2xl border border-neutral-800">
                 <div className="flex items-center gap-3">
                   <img 
-                    src={game.organizer.avatar} 
+                    src={resolvePlayerAvatar(game.organizer)} 
                     alt={game.organizer.name}
                     className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/40"
                   />
@@ -569,7 +569,7 @@ export const GameDetailModal: React.FC = () => {
                     >
                       <div className="flex items-center gap-2.5">
                         <img 
-                          src={player.avatar} 
+                          src={resolvePlayerAvatar(player as any)} 
                           alt={player.name}
                           className="w-8 h-8 rounded-full object-cover ring-1 ring-neutral-700"
                         />
@@ -1199,7 +1199,7 @@ export const GameDetailModal: React.FC = () => {
                         {/* Player Info */}
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <img
-                            src={player.avatar || player.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'}
+                            src={resolvePlayerAvatar(player)}
                             alt={player.name}
                             className="w-10 h-10 rounded-xl object-cover ring-1 ring-neutral-700 shrink-0"
                           />

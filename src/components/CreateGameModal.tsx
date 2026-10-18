@@ -5,7 +5,8 @@ import {
   SkillLevel, 
   GenderPreference, 
   GameVisibility, 
-  KuwaitArea 
+  KuwaitArea,
+  getTodayLocalDate 
 } from '../types';
 import { 
   X, 
@@ -15,6 +16,7 @@ import {
   Check, 
   Plus, 
   ShieldCheck, 
+  ShieldAlert,
   Calendar,
   Clock,
   MapPin,
@@ -52,9 +54,12 @@ export const CreateGameModal: React.FC = () => {
     t 
   } = useApp();
 
+  const isRestricted = currentUser?.canOrganize === false;
+  const isPrivilegeLoading = authStatus === 'loading';
+
   const [title, setTitle] = useState('');
   const [sport, setSport] = useState<SportType>('Football');
-  const [date, setDate] = useState('2026-09-25');
+  const [date, setDate] = useState<string>(() => getTodayLocalDate());
   const [startTime, setStartTime] = useState('20:00');
   const [endTime, setEndTime] = useState('21:30');
   const [courtName, setCourtName] = useState('Mishref Youth Center Stadium');
@@ -72,12 +77,16 @@ export const CreateGameModal: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initialize or prefill from Li3ib booking
+  // Initialize or prefill from Li3ib booking whenever the modal opens
   useEffect(() => {
+    if (!createGameModalOpen) {
+      return;
+    }
+
     if (createGamePrefill) {
       if (createGamePrefill.title) setTitle(createGamePrefill.title);
       if (createGamePrefill.sport) setSport(createGamePrefill.sport);
-      if (createGamePrefill.date) setDate(createGamePrefill.date);
+      setDate(createGamePrefill.date || getTodayLocalDate());
       if (createGamePrefill.startTime) setStartTime(createGamePrefill.startTime);
       if (createGamePrefill.endTime) setEndTime(createGamePrefill.endTime);
       if (createGamePrefill.courtName) setCourtName(createGamePrefill.courtName);
@@ -92,7 +101,7 @@ export const CreateGameModal: React.FC = () => {
     } else {
       setTitle('Friday Night Football ⚽');
       setSport('Football');
-      setDate('2026-09-25');
+      setDate(getTodayLocalDate());
       setStartTime('20:00');
       setEndTime('21:30');
       setCourtName('Mishref Youth Center Stadium');
@@ -124,6 +133,15 @@ export const CreateGameModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isRestricted || isPrivilegeLoading) {
+      if (isRestricted) {
+        setErrorMessage(t(
+          'Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.',
+          'حسابك غير مصرح له حالياً بإنشاء مباريات أو حجز الملاعب. يرجى التواصل مع الإدارة للمساعدة.'
+        ));
+      }
+      return;
+    }
     if (!title.trim()) {
       setErrorMessage(t('Please enter a game title.', 'يرجى إدخال اسم المباراة.'));
       return;
@@ -244,6 +262,30 @@ export const CreateGameModal: React.FC = () => {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
+          {/* Prominent Restriction Warning Banner */}
+          {isRestricted && (
+            <div 
+              data-testid="booking-restricted-banner"
+              role="alert"
+              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-950/80 via-neutral-900 to-amber-950/80 border-2 border-amber-500/60 shadow-lg shadow-amber-950/40 text-amber-100 flex items-start gap-3.5"
+            >
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <div className="flex-1 space-y-1 text-left rtl:text-right">
+                <h3 className="font-black text-sm sm:text-base text-amber-300">
+                  {t('Booking Restricted', 'الحجز مقيد')}
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-200/90 leading-relaxed font-medium">
+                  {t(
+                    'Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.',
+                    'حسابك غير مصرح له حالياً بإنشاء مباريات أو حجز الملاعب. يرجى التواصل مع الإدارة للمساعدة.'
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Game Title */}
           <div>
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider mb-1.5">
@@ -532,7 +574,7 @@ export const CreateGameModal: React.FC = () => {
               <span className="text-lg font-black text-emerald-400">{pricePerPlayer.toFixed(3)} KWD</span>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -546,20 +588,37 @@ export const CreateGameModal: React.FC = () => {
                 {t('Cancel', 'إلغاء')}
               </button>
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-neutral-900 border-t-transparent rounded-full animate-spin" />
-                    <span>{t('Saving to Firestore...', 'جاري الحفظ في Firestore...')}</span>
-                  </>
-                ) : (
-                  t('Post Game & Open Spots', 'نشر المباراة وفتح الحجز')
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  type="submit"
+                  disabled={isRestricted || isPrivilegeLoading || submitting}
+                  aria-label="Post Booking"
+                  onKeyDown={(e) => {
+                    if (isRestricted || isPrivilegeLoading) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className={`px-6 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 transition-all ${
+                    isRestricted || isPrivilegeLoading
+                      ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed opacity-60 shadow-none'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-neutral-900 border-t-transparent rounded-full animate-spin" />
+                      <span>{t('Saving to Firestore...', 'جاري الحفظ في Firestore...')}</span>
+                    </>
+                  ) : (
+                    t('Post Game & Open Spots', 'نشر المباراة وفتح الحجز')
+                  )}
+                </button>
+                {isRestricted && (
+                  <span className="text-[10px] text-amber-400 font-semibold text-right rtl:text-left">
+                    {t('Account restricted from organizing games', 'حسابك مقيد من تنظيم المباريات')}
+                  </span>
                 )}
-              </button>
+              </div>
             </div>
           </div>
         </form>

@@ -74,6 +74,7 @@ export interface UserProfile {
   gamesHosted: number;
   attendanceRate: number; // e.g. 98 for 98%
   isOrganizer?: boolean;
+  canOrganize?: boolean;
   isAdmin?: boolean;
   isFollowing?: boolean;
   isDemoUser?: boolean;
@@ -89,6 +90,41 @@ export interface UserProfile {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/**
+ * Neutral default avatar silhouette SVG for guest accounts with no human face.
+ */
+export const DEFAULT_GUEST_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' fill='%23262626'/%3E%3Ccircle cx='64' cy='46' r='22' fill='%23737373'/%3E%3Cpath d='M28 108c0-19.882 16.118-36 36-36s36 16.118 36 36' fill='%23737373'/%3E%3C/svg%3E";
+
+/**
+ * Resolves an avatar URL for any player or profile.
+ * Ensures guest accounts (unauthenticated, guest ID, or guest username) always display a neutral
+ * default profile picture with no human face.
+ * Real registered/authenticated users preserve their Google photo, custom uploaded avatar, or profile photo.
+ */
+export const resolvePlayerAvatar = (user?: Partial<UserProfile> | null): string => {
+  if (!user) return DEFAULT_GUEST_AVATAR;
+  const isGuest = user.id === 'guest' || user.username === 'guest';
+  if (isGuest) {
+    if (!user.avatar || user.avatar.includes('photo-1535713875002') || user.avatar.includes('photo-1534528741775')) {
+      return DEFAULT_GUEST_AVATAR;
+    }
+    return user.avatar;
+  }
+  return user.avatar || user.photoURL || DEFAULT_GUEST_AVATAR;
+};
+
+/**
+ * Returns today's local calendar date in 'YYYY-MM-DD' format.
+ * Uses local getFullYear(), getMonth(), and getDate() to avoid timezone/UTC conversion
+ * issues (e.g. toISOString()) that could shift the date by +/- 1 day.
+ */
+export const getTodayLocalDate = (d: Date = new Date()): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export interface CourtBooking {
   id: string;

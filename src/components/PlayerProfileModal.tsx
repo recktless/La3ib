@@ -23,7 +23,7 @@ import {
   MoreHorizontal,
   AlertTriangle
 } from 'lucide-react';
-import { SportType, PlayerActivityStats, ReportReason } from '../types';
+import { SportType, PlayerActivityStats, ReportReason, resolvePlayerAvatar } from '../types';
 
 const REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'spam', en: 'Spam or advertising', ar: 'إعلانات مزعجة أو سبام' },
@@ -225,6 +225,11 @@ export const PlayerProfileModal: React.FC = () => {
       return;
     }
 
+    if (!targetId || targetId === 'user-current' || targetId === currentUid) {
+      setReportFeedback(t('Cannot submit a report for this profile.', 'لا يمكن تقديم بلاغ ضد هذا الملف الشخصي.'));
+      return;
+    }
+
     try {
       setIsSubmittingReport(true);
       setReportFeedback(null);
@@ -293,7 +298,7 @@ export const PlayerProfileModal: React.FC = () => {
             <div className="flex items-start gap-4">
               <div className="relative">
                 <img 
-                  src={player.avatar || player.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'} 
+                  src={resolvePlayerAvatar(player)} 
                   alt={player.name}
                   className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl object-cover ring-2 ring-emerald-500/30 shadow-lg shrink-0"
                 />

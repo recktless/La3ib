@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => {
     deleteDoc: vi.fn(),
     doc: vi.fn(),
     collection: vi.fn(),
-    writeBatch: vi.fn()
+    writeBatch: vi.fn(),
+    onSnapshot: vi.fn()
   };
 });
 
@@ -27,6 +28,7 @@ vi.mock('firebase/firestore', async (importOriginal) => {
     updateDoc: (...args: any[]) => mocks.updateDoc(...args),
     deleteDoc: (...args: any[]) => mocks.deleteDoc(...args),
     writeBatch: (...args: any[]) => mocks.writeBatch(...args),
+    onSnapshot: (...args: any[]) => mocks.onSnapshot(...args),
     query: (...args: any[]) => ({ _query: true, args }),
     where: (...args: any[]) => ({ _where: true, args }),
     limit: (...args: any[]) => ({ _limit: true, args }),
@@ -70,7 +72,13 @@ import {
   reviewReportInFirestore,
   resolveReportInFirestore,
   dismissReportInFirestore,
+  fetchReportsFromFirestore,
+  subscribeToReportsInFirestore,
+  checkIsAdminInFirestore,
+  createOrFetchUserProfile,
   moderateCancelGameInFirestore,
+  setAthleteOrganizingStatus,
+  fetchTargetModerationHistory,
   sendGameChatMessage,
   createNotification,
   markNotificationAsRead,
@@ -858,6 +866,30 @@ describe('Phase 4: Service-Level Firestore Integration Tests', () => {
       })).rejects.toThrow('You cannot report yourself.');
     });
 
+    it('createReportInFirestore rejects user-current target', async () => {
+      await expect(createReportInFirestore({
+        reportedUserId: 'user-current',
+        reason: 'spam'
+      })).rejects.toThrow('Invalid report target: demo user profiles cannot be reported.');
+    });
+
+    it('createReportInFirestore succeeds when initial getDoc check throws because document does not exist', async () => {
+      mocks.getDoc.mockRejectedValueOnce(new Error('Missing or insufficient permissions.'));
+      let createdPayload: any = null;
+      mocks.setDoc.mockImplementation(async (_ref: any, payload: any) => {
+        createdPayload = payload;
+      });
+
+      const reportId = await createReportInFirestore({
+        reportedUserId: 'target-user-99',
+        reason: 'spam'
+      });
+
+      expect(reportId).toBe('rep_user-auth-1_u_target-user-99');
+      expect(createdPayload).not.toBeNull();
+      expect(createdPayload.reportedUserId).toBe('target-user-99');
+    });
+
     it('reviewReportInFirestore transitions open report to reviewing and records audit log', async () => {
       let updatePayload: any = null;
       mocks.getDoc.mockResolvedValue(createDocSnap('report-1', true, { status: 'open' }));
@@ -873,25 +905,403 @@ describe('Phase 4: Service-Level Firestore Integration Tests', () => {
       expect(updatePayload.moderatorId).toBe('user-auth-1');
     });
 
-    it('resolveReportInFirestore rejects resolving already dismissed or resolved reports', async () => {
-      mocks.getDoc.mockResolvedValue(createDocSnap('report-resolved', true, { status: 'resolved' }));
-
-      await expect(resolveReportInFirestore('report-resolved', 'Fixed')).rejects.toThrow();
-    });
-
-    it('dismissReportInFirestore records dismissal reason and timestamp', async () => {
+    it('resolveReportInFirestore transitions report to resolved, records resolution, and appends audit log', async () => {
       let updatePayload: any = null;
-      mocks.getDoc.mockResolvedValue(createDocSnap('report-1', true, { status: 'reviewing' }));
+      let auditLogPayload: any = null;
+
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-1', true, {
+        id: 'report-1',
+        status: 'open',
+        reportedUserId: 'target-user-1',
+        reason: 'harassment'
+      }));
+
       mocks.updateDoc.mockImplementation(async (_ref: any, payload: any) => {
         updatePayload = payload;
       });
-      mocks.setDoc.mockResolvedValue(undefined);
+
+      mocks.setDoc.mockImplementation(async (_ref: any, payload: any) => {
+        auditLogPayload = payload;
+      });
+
+      await resolveReportInFirestore('report-1', 'Warning issued to athlete for unsportsmanlike behavior');
+
+      // Verify report document update
+      expect(updatePayload).not.toBeNull();
+      expect(updatePayload.status).toBe('resolved');
+      expect(updatePayload.resolution).toBe('Warning issued to athlete for unsportsmanlike behavior');
+      expect(updatePayload.moderatorId).toBe('user-auth-1');
+      expect(typeof updatePayload.resolvedAt).toBe('string');
+      expect(typeof updatePayload.updatedAt).toBe('string');
+
+      // Verify immutable audit log write in moderationLogs
+      expect(auditLogPayload).not.toBeNull();
+      expect(auditLogPayload.action).toBe('resolve_report');
+      expect(auditLogPayload.targetType).toBe('user');
+      expect(auditLogPayload.targetId).toBe('target-user-1');
+      expect(auditLogPayload.reportId).toBe('report-1');
+      expect(auditLogPayload.resolution).toBe('Warning issued to athlete for unsportsmanlike behavior');
+      expect(auditLogPayload.moderatorId).toBe('user-auth-1');
+    });
+
+    it('resolveReportInFirestore rejects resolving already dismissed or resolved reports', async () => {
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-resolved', true, { status: 'resolved' }));
+      await expect(resolveReportInFirestore('report-resolved', 'Fixed')).rejects.toThrow('Report cannot be resolved from status: resolved');
+
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-dismissed', true, { status: 'dismissed' }));
+      await expect(resolveReportInFirestore('report-dismissed', 'Fixed')).rejects.toThrow('Report cannot be resolved from status: dismissed');
+    });
+
+    it('dismissReportInFirestore transitions report to dismissed, records reason, appends audit log, and preserves player status', async () => {
+      let updatePayload: any = null;
+      let auditLogPayload: any = null;
+
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-1', true, {
+        id: 'report-1',
+        status: 'reviewing',
+        reportedUserId: 'target-user-1',
+        reason: 'spam'
+      }));
+
+      mocks.updateDoc.mockImplementation(async (_ref: any, payload: any) => {
+        updatePayload = payload;
+      });
+
+      mocks.setDoc.mockImplementation(async (_ref: any, payload: any) => {
+        auditLogPayload = payload;
+      });
 
       await dismissReportInFirestore('report-1', 'False report, compliant with rules');
 
+      // Verify report document update
       expect(updatePayload).not.toBeNull();
       expect(updatePayload.status).toBe('dismissed');
       expect(updatePayload.dismissalReason).toBe('False report, compliant with rules');
+      expect(updatePayload.moderatorId).toBe('user-auth-1');
+      expect(typeof updatePayload.dismissedAt).toBe('string');
+      expect(typeof updatePayload.updatedAt).toBe('string');
+
+      // Verify immutable audit log write in moderationLogs
+      expect(auditLogPayload).not.toBeNull();
+      expect(auditLogPayload.action).toBe('dismiss_report');
+      expect(auditLogPayload.targetType).toBe('user');
+      expect(auditLogPayload.targetId).toBe('target-user-1');
+      expect(auditLogPayload.reportId).toBe('report-1');
+      expect(auditLogPayload.reason).toBe('False report, compliant with rules');
+      expect(auditLogPayload.moderatorId).toBe('user-auth-1');
+
+      // Confirm no destructive actions against target player (e.g. no deleteDoc or ban called)
+      expect(mocks.deleteDoc).not.toHaveBeenCalled();
+    });
+
+    it('dismissReportInFirestore rejects dismissing already resolved or dismissed reports', async () => {
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-resolved', true, { status: 'resolved' }));
+      await expect(dismissReportInFirestore('report-resolved', 'Dismiss')).rejects.toThrow('Report cannot be dismissed from status: resolved');
+
+      mocks.getDoc.mockResolvedValue(createDocSnap('report-dismissed', true, { status: 'dismissed' }));
+      await expect(dismissReportInFirestore('report-dismissed', 'Dismiss')).rejects.toThrow('Report cannot be dismissed from status: dismissed');
+    });
+
+    it('moderateCancelGameInFirestore sets game status to Cancelled with moderated metadata and writes audit log', async () => {
+      let updatePayload: any = null;
+      let auditLogPayload: any = null;
+
+      mocks.getDoc
+        .mockResolvedValueOnce(createDocSnap('game-target-1', true, {
+          title: 'Friday Padel',
+          status: 'Open',
+          organizerId: 'user-organizer',
+          description: 'Fun pickup'
+        }))
+        .mockResolvedValueOnce(createDocSnap('game-target-1', true, {
+          title: 'Friday Padel',
+          status: 'Cancelled',
+          moderated: true,
+          moderationReason: 'Policy violation',
+          organizerId: 'user-organizer',
+          currentPlayers: 2,
+          maxPlayers: 4,
+          pricePerPlayerKWD: 5,
+          totalCourtCostKWD: 20,
+          sport: 'Padel',
+          date: '2026-10-20',
+          courtName: 'Yarmouk Court'
+        }));
+
+      mocks.updateDoc.mockImplementation(async (_ref: any, payload: any) => {
+        updatePayload = payload;
+      });
+
+      mocks.setDoc.mockImplementation(async (_ref: any, payload: any) => {
+        auditLogPayload = payload;
+      });
+
+      const updated = await moderateCancelGameInFirestore('game-target-1', 'Policy violation', 'rep-123');
+
+      expect(updatePayload).not.toBeNull();
+      expect(updatePayload.status).toBe('Cancelled');
+      expect(updatePayload.moderated).toBe(true);
+      expect(updatePayload.moderatedBy).toBe('user-auth-1');
+      expect(updatePayload.moderationReason).toBe('Policy violation');
+
+      expect(auditLogPayload).not.toBeNull();
+      expect(auditLogPayload.action).toBe('cancel_game');
+      expect(auditLogPayload.targetType).toBe('game');
+      expect(auditLogPayload.targetId).toBe('game-target-1');
+      expect(auditLogPayload.reportId).toBe('rep-123');
+      expect(updated.status).toBe('Cancelled');
+    });
+
+    it('setAthleteOrganizingStatus updates canOrganize and writes audit log', async () => {
+      let updatePayload: any = null;
+      let auditLogPayload: any = null;
+
+      mocks.updateDoc.mockImplementation(async (_ref: any, payload: any) => {
+        updatePayload = payload;
+      });
+
+      mocks.setDoc.mockImplementation(async (_ref: any, payload: any) => {
+        auditLogPayload = payload;
+      });
+
+      await setAthleteOrganizingStatus('target-athlete-1', false, 'Excessive match no-shows');
+
+      expect(updatePayload).not.toBeNull();
+      expect(updatePayload.canOrganize).toBe(false);
+      expect(typeof updatePayload.updatedAt).toBe('string');
+
+      expect(auditLogPayload).not.toBeNull();
+      expect(auditLogPayload.action).toBe('resolve_report');
+      expect(auditLogPayload.targetType).toBe('user');
+      expect(auditLogPayload.targetId).toBe('target-athlete-1');
+      expect(auditLogPayload.reason).toBe('Excessive match no-shows');
+      expect(auditLogPayload.moderatorId).toBe('user-auth-1');
+    });
+
+    it('fetchTargetModerationHistory queries logs for specified target', async () => {
+      mocks.getDocs.mockResolvedValue({
+        forEach: (cb: (doc: any) => void) => {
+          cb({
+            id: 'log-1',
+            data: () => ({
+              moderatorId: 'admin-1',
+              action: 'resolve_report',
+              targetType: 'user',
+              targetId: 'target-athlete-1',
+              reason: 'Warning issued',
+              createdAt: '2026-10-17T10:00:00Z',
+              createdAtISO: '2026-10-17T10:00:00Z'
+            })
+          });
+        }
+      });
+
+      const logs = await fetchTargetModerationHistory('target-athlete-1', 5);
+      expect(logs).toHaveLength(1);
+      expect(logs[0].targetId).toBe('target-athlete-1');
+      expect(logs[0].action).toBe('resolve_report');
+    });
+
+    it('checkIsAdminInFirestore recognizes admin email case-insensitively', async () => {
+      // Mock auth instance with lowercase email
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'admin-uid-1',
+          email: 'khalidalami5555@gmail.com',
+          emailVerified: true
+        }
+      } as any);
+
+      mocks.getDoc.mockResolvedValue(createDocSnap('admin-uid-1', false));
+      mocks.setDoc.mockResolvedValue(undefined);
+
+      const isAdmin = await checkIsAdminInFirestore();
+      expect(isAdmin).toBe(true);
+
+      // Also verify capital letter casing
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'admin-uid-2',
+          email: 'Khalidalami5555@gmail.com',
+          emailVerified: true
+        }
+      } as any);
+      const isAdminUpper = await checkIsAdminInFirestore();
+      expect(isAdminUpper).toBe(true);
+
+      // Verify non-admin user
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'user-regular',
+          email: 'regular_player@gmail.com',
+          emailVerified: true
+        }
+      } as any);
+      mocks.getDoc.mockResolvedValue(createDocSnap('user-regular', false));
+      const isRegularAdmin = await checkIsAdminInFirestore();
+      expect(isRegularAdmin).toBe(false);
+
+      // Verify spoof attack: matching email but emailVerified is false
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'attacker-uid',
+          email: 'khalidalami5555@gmail.com',
+          emailVerified: false
+        }
+      } as any);
+      mocks.getDoc.mockResolvedValue(createDocSnap('attacker-uid', false));
+      const isSpoofedAdmin = await checkIsAdminInFirestore();
+      expect(isSpoofedAdmin).toBe(false);
+
+      // Restore default test auth instance
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'user-auth-1',
+          email: 'test@example.com'
+        }
+      } as any);
+    });
+
+    it('fetchReportsFromFirestore returns reports sorted newest first and filters by status', async () => {
+      mocks.getDocs.mockResolvedValue({
+        forEach: (cb: any) => {
+          cb({
+            id: 'rep_1',
+            data: () => ({
+              id: 'rep_1',
+              reporterId: 'user-1',
+              reportedUserId: 'target-1',
+              reason: 'spam',
+              status: 'open',
+              createdAt: '2026-10-16T10:00:00.000Z'
+            })
+          });
+          cb({
+            id: 'rep_2',
+            data: () => ({
+              id: 'rep_2',
+              reporterId: 'user-2',
+              reportedUserId: 'target-2',
+              reason: 'harassment',
+              status: 'resolved',
+              createdAt: '2026-10-16T12:00:00.000Z'
+            })
+          });
+        }
+      });
+
+      // Fetch all reports
+      const allReports = await fetchReportsFromFirestore();
+      expect(allReports.length).toBe(2);
+      // Newest (rep_2 at 12:00) should come first
+      expect(allReports[0].id).toBe('rep_2');
+      expect(allReports[1].id).toBe('rep_1');
+
+      // Fetch with status filter: 'open'
+      const openReports = await fetchReportsFromFirestore({ status: 'open' });
+      expect(openReports.length).toBe(1);
+      expect(openReports[0].id).toBe('rep_1');
+      expect(openReports[0].status).toBe('open');
+    });
+
+    it('subscribeToReportsInFirestore delivers items to callback sorted newest first', () => {
+      let registeredCallback: any = null;
+      mocks.onSnapshot.mockImplementation((_query: any, onNext: any) => {
+        registeredCallback = onNext;
+        return () => {};
+      });
+
+      let receivedReports: any[] = [];
+      const unsub = subscribeToReportsInFirestore((items) => {
+        receivedReports = items;
+      });
+
+      expect(typeof unsub).toBe('function');
+      expect(registeredCallback).not.toBeNull();
+
+      // Trigger snapshot callback with mock docs
+      registeredCallback({
+        forEach: (cb: any) => {
+          cb({
+            id: 'doc-old',
+            data: () => ({
+              status: 'open',
+              reason: 'spam',
+              createdAt: '2026-10-15T08:00:00.000Z'
+            })
+          });
+          cb({
+            id: 'doc-new',
+            data: () => ({
+              status: 'open',
+              reason: 'harassment',
+              createdAt: '2026-10-16T08:00:00.000Z'
+            })
+          });
+        }
+      });
+
+      expect(receivedReports.length).toBe(2);
+      expect(receivedReports[0].id).toBe('doc-new');
+      expect(receivedReports[1].id).toBe('doc-old');
+    });
+
+    it('createOrFetchUserProfile sets isAdmin: true for project admin on existing profile', async () => {
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'admin-user-id',
+          email: 'Khalidalami5555@gmail.com',
+          emailVerified: true
+        }
+      } as any);
+
+      // Mock existing public profile without isAdmin set
+      mocks.getDoc.mockImplementation(async (ref: any) => {
+        if (ref.path === 'users/admin-user-id') {
+          return createDocSnap('admin-user-id', true, {
+            id: 'admin-user-id',
+            name: 'Khalid Alami',
+            username: 'khalid_admin'
+          });
+        }
+        if (ref.path === 'users/admin-user-id/private/account') {
+          return createDocSnap('account', true, {
+            email: 'Khalidalami5555@gmail.com'
+          });
+        }
+        return createDocSnap('not-found', false);
+      });
+
+      const profile = await createOrFetchUserProfile({
+        uid: 'admin-user-id',
+        email: 'Khalidalami5555@gmail.com',
+        emailVerified: true
+      } as any);
+
+      expect(profile.isAdmin).toBe(true);
+
+      // Verify unverified email with matching address gets isAdmin: false
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'unverified-uid',
+          email: 'Khalidalami5555@gmail.com',
+          emailVerified: false
+        }
+      } as any);
+      mocks.getDoc.mockResolvedValue(createDocSnap('unverified-uid', false));
+      const unverifiedProfile = await createOrFetchUserProfile({
+        uid: 'unverified-uid',
+        email: 'Khalidalami5555@gmail.com',
+        emailVerified: false
+      } as any);
+      expect(unverifiedProfile.isAdmin).toBe(false);
+
+      _setTestAuthInstance({
+        currentUser: {
+          uid: 'user-auth-1',
+          email: 'test@example.com'
+        }
+      } as any);
     });
 
     it('moderateCancelGameInFirestore cancels game, marks moderated flag, and preserves participants', async () => {
@@ -1096,6 +1506,8 @@ describe('Phase 4: Service-Level Firestore Integration Tests', () => {
       await expect(sendFriendRequestInFirestore('target-1')).rejects.toThrow('User must be authenticated');
       await expect(sendGameInviteInFirestore('game-1', 'target-1')).rejects.toThrow('User must be authenticated');
       await expect(reviewReportInFirestore('report-1')).rejects.toThrow('User must be authenticated');
+      await expect(resolveReportInFirestore('report-1', 'Done')).rejects.toThrow('User must be authenticated');
+      await expect(dismissReportInFirestore('report-1', 'Dismissed')).rejects.toThrow('User must be authenticated');
     });
   });
 });

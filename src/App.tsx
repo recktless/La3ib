@@ -21,6 +21,7 @@ import { JoinPaymentModal } from './components/JoinPaymentModal';
 import { GameDetailModal } from './components/GameDetailModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { AuthModal } from './components/AuthModal';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { UserCheck, Sparkles, LogIn } from 'lucide-react';
@@ -107,6 +108,7 @@ const AppContent: React.FC = () => {
       <GameDetailModal />
       <AdminPanelModal />
       <AuthModal />
+      <ResetPasswordModal />
       <NotificationsModal />
       <PlayerProfileModal />
     </div>

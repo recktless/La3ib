@@ -252,7 +252,7 @@
         "reportedGameId": { "type": "string", "maxLength": 128 },
         "reason": { "type": "string", "enum": ["spam", "harassment", "inappropriate_behavior", "fake_profile", "scam_or_fraud", "unsafe_behavior", "other"] },
         "details": { "type": "string", "maxLength": 1000 },
-        "status": { "type": "string", "enum": ["open", "reviewed", "resolved", "dismissed"] },
+        "status": { "type": "string", "enum": ["open", "reviewing", "reviewed", "resolved", "dismissed"] },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },

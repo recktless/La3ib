@@ -17,7 +17,7 @@ import {
   applyGameParticipantLeave,
   calculateGameFinancialSummary
 } from '../src/lib/firebase';
-import { Game, GameParticipant, SportType } from '../src/types';
+import { Game, GameParticipant, SportType, UserProfile, getTodayLocalDate, DEFAULT_GUEST_AVATAR, resolvePlayerAvatar } from '../src/types';
 
 const initialDemoGame: Game = {
   id: 'demo-match-1',
@@ -862,4 +862,111 @@ describe('12. Game State Pure Helpers (Join, Leave, Financials)', () => {
     expect(fullResult.organizerShareKWD).toBe(0.0);
   });
 });
+
+describe('Default Game Date & Neutral Guest Profile Picture (La3ib Updates)', () => {
+  describe('getTodayLocalDate', () => {
+    it("defaults to today's local calendar date formatted as YYYY-MM-DD", () => {
+      const today = new Date();
+      const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      expect(getTodayLocalDate()).toBe(expected);
+    });
+
+    it('avoids UTC offset shifts by strictly using local date components', () => {
+      // Create a date instance for 2026-10-15 01:30 AM local time
+      // If UTC conversion (toISOString) were used in UTC+3 timezone, it would shift back to 2026-10-14
+      const testDate = new Date(2026, 9, 15, 1, 30, 0); // month is 0-indexed: 9 = October
+      expect(getTodayLocalDate(testDate)).toBe('2026-10-15');
+
+      // Test end of month / end of day
+      const testDateEvening = new Date(2026, 11, 31, 23, 59, 59); // December 31
+      expect(getTodayLocalDate(testDateEvening)).toBe('2026-12-31');
+
+      // Test single-digit month and day padding
+      const testDateSingleDigits = new Date(2026, 0, 5, 14, 0, 0); // January 5
+      expect(getTodayLocalDate(testDateSingleDigits)).toBe('2026-01-05');
+    });
+
+    it('produces distinct dates across different days without stale caching', () => {
+      const day1 = new Date(2026, 9, 15);
+      const day2 = new Date(2026, 9, 16);
+      expect(getTodayLocalDate(day1)).toBe('2026-10-15');
+      expect(getTodayLocalDate(day2)).toBe('2026-10-16');
+      expect(getTodayLocalDate(day1)).not.toBe(getTodayLocalDate(day2));
+    });
+  });
+
+  describe('DEFAULT_GUEST_AVATAR & resolvePlayerAvatar', () => {
+    it('DEFAULT_GUEST_AVATAR is a valid data URI containing a neutral SVG silhouette with no human face', () => {
+      expect(DEFAULT_GUEST_AVATAR.startsWith('data:image/svg+xml')).toBe(true);
+      expect(DEFAULT_GUEST_AVATAR).not.toContain('unsplash.com');
+      expect(DEFAULT_GUEST_AVATAR).not.toContain('photo-');
+      // Silhouette elements
+      expect(DEFAULT_GUEST_AVATAR).toContain('circle');
+      expect(DEFAULT_GUEST_AVATAR).toContain('path');
+    });
+
+    it('resolves guest users to the neutral default avatar with no human face', () => {
+      const guestById: Partial<UserProfile> = {
+        id: 'guest',
+        name: 'Guest Player',
+        username: 'guest',
+        avatar: DEFAULT_GUEST_AVATAR
+      };
+      expect(resolvePlayerAvatar(guestById)).toBe(DEFAULT_GUEST_AVATAR);
+
+      // Null or undefined user falls back to neutral default
+      expect(resolvePlayerAvatar(null)).toBe(DEFAULT_GUEST_AVATAR);
+      expect(resolvePlayerAvatar(undefined)).toBe(DEFAULT_GUEST_AVATAR);
+
+      // Guest user with missing avatar
+      const guestNoAvatar: Partial<UserProfile> = {
+        id: 'guest',
+        name: 'Guest Player',
+        username: 'guest',
+        avatar: ''
+      };
+      expect(resolvePlayerAvatar(guestNoAvatar)).toBe(DEFAULT_GUEST_AVATAR);
+
+      // Guest user with legacy human-face unsplash URL is sanitized to neutral avatar
+      const guestStaleFace: Partial<UserProfile> = {
+        id: 'guest',
+        name: 'Guest Player',
+        username: 'guest',
+        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80'
+      };
+      expect(resolvePlayerAvatar(guestStaleFace)).toBe(DEFAULT_GUEST_AVATAR);
+    });
+
+    it('preserves Google profile photos and uploaded photos for real users', () => {
+      // Real user with Google photoURL
+      const googleUser: Partial<UserProfile> = {
+        id: 'u-google-1',
+        name: 'Fatima Al-Sabah',
+        username: 'fatima_s',
+        photoURL: 'https://lh3.googleusercontent.com/a/ACg8ocLexample=s96-c',
+        avatar: 'https://lh3.googleusercontent.com/a/ACg8ocLexample=s96-c'
+      };
+      expect(resolvePlayerAvatar(googleUser)).toBe('https://lh3.googleusercontent.com/a/ACg8ocLexample=s96-c');
+
+      // Real user with user-uploaded custom photo (e.g. data URI or storage URL)
+      const customUser: Partial<UserProfile> = {
+        id: 'u-custom-2',
+        name: 'Bader Al-Mutawa',
+        username: 'bader17',
+        avatar: 'https://firebasestorage.googleapis.com/v0/b/project/o/users%2Fu-custom-2%2Favatar.jpg'
+      };
+      expect(resolvePlayerAvatar(customUser)).toBe('https://firebasestorage.googleapis.com/v0/b/project/o/users%2Fu-custom-2%2Favatar.jpg');
+
+      // Real user with preexisting saved photo is preserved untouched
+      const demoAhmed: Partial<UserProfile> = {
+        id: 'user-current',
+        name: 'Ahmed Al-Kandari',
+        username: 'ahmed_kw',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'
+      };
+      expect(resolvePlayerAvatar(demoAhmed)).toBe('https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80');
+    });
+  });
+});
+
 

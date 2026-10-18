@@ -32,7 +32,7 @@ import {
   AlertTriangle,
   AlertCircle
 } from 'lucide-react';
-import { SportType, SkillLevel, KuwaitArea, PlayerActivityStats } from '../types';
+import { SportType, SkillLevel, KuwaitArea, PlayerActivityStats, resolvePlayerAvatar } from '../types';
 import { isFirebaseConfigured, uploadUserProfilePicture, validateUsername, mapFirebaseAuthError } from '../lib/firebase';
 
 const KUWAIT_AREAS: KuwaitArea[] = [
@@ -490,7 +490,7 @@ export const ProfileTab: React.FC = () => {
             <div className="flex items-end gap-4">
               <div className="relative group">
                 <img 
-                  src={currentUser.avatar} 
+                  src={resolvePlayerAvatar(currentUser)} 
                   alt={currentUser.name}
                   className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl object-cover ring-4 ring-neutral-900 shadow-2xl"
                 />

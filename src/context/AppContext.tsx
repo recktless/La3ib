@@ -22,7 +22,9 @@ import {
   GamePayment,
   PaymentStatus,
   ModerationLogEntry,
-  ModerationAction
+  ModerationAction,
+  DEFAULT_GUEST_AVATAR,
+  resolvePlayerAvatar
 } from '../types';
 import { 
   CURRENT_USER, 
@@ -91,6 +93,7 @@ import {
   dismissReportInFirestore,
   moderateCancelGameInFirestore,
   fetchModerationLogsFromFirestore,
+  setAthleteOrganizingStatus as setAthleteOrganizingStatusInFirestore,
   logModerationAction,
   getGamePayment,
   initializeGamePayment,
@@ -98,6 +101,11 @@ import {
   simulateGameRefund,
   canTransitionPayment,
   sendPasswordReset,
+  verifyResetCode,
+  confirmResetPassword,
+  extractAuthActionParams,
+  clearAuthActionParams,
+  auth,
   deleteCurrentUserAccount,
   reauthenticateCurrentUser,
   checkUsernameAvailability,
@@ -111,7 +119,7 @@ const GUEST_USER: UserProfile = {
   name: 'Guest Player',
   nameAr: 'لاعب زائر',
   username: 'guest',
-  avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+  avatar: DEFAULT_GUEST_AVATAR,
   area: 'Kuwait City',
   bio: 'Sign in to create games, book courts, and track your athlete stats.',
   favoriteSports: ['Football', 'Padel'],
@@ -158,6 +166,12 @@ interface AppContextType {
   logout: () => Promise<void>;
   continueAsDemo: () => void;
   sendPasswordResetEmailAction: (email: string) => Promise<void>;
+  verifyResetCodeAction: (code: string) => Promise<string>;
+  confirmResetPasswordAction: (code: string, newPass: string) => Promise<void>;
+  resetPasswordModalOpen: boolean;
+  setResetPasswordModalOpen: (open: boolean) => void;
+  resetPasswordActionCode: string | null;
+  setResetPasswordActionCode: (code: string | null) => void;
   deleteAccountAction: (reauthPassword?: string) => Promise<void>;
   reauthenticateAction: (password?: string) => Promise<void>;
   checkUsername: (username: string) => Promise<{ available: boolean; error?: string }>;
@@ -277,6 +291,7 @@ interface AppContextType {
   dismissModerationReport: (reportId: string, reason?: string) => Promise<void>;
   moderateGameCancellation: (gameId: string, reason: string, reportId?: string) => Promise<void>;
   refreshModerationQueue: () => Promise<void>;
+  setAthleteOrganizingStatus: (userId: string, canOrganize: boolean, reason?: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -286,7 +301,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'forgot_password'>('login');
+  const [resetPasswordModalOpen, setResetPasswordModalOpen] = useState(false);
+  const [resetPasswordActionCode, setResetPasswordActionCode] = useState<string | null>(null);
   const [isDemoActive, setIsDemoActive] = useState(true);
+
+  // Detect Firebase action URL parameters (e.g. ?mode=resetPassword&oobCode=XYZ)
+  useEffect(() => {
+    const { mode, oobCode } = extractAuthActionParams();
+    if (mode && mode.toLowerCase() === 'resetpassword' && oobCode) {
+      setResetPasswordActionCode(oobCode);
+      setResetPasswordModalOpen(true);
+    }
+  }, []);
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => ({
     ...CURRENT_USER,
@@ -421,16 +447,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ? (firestorePlayers.length > 0
           ? [
               ...firestorePlayers,
-              ...demoPlayers.filter(m => !firestorePlayers.some(f => f.id === m.id || f.username === m.username))
+              ...demoPlayers.filter(m => m.id !== 'user-current' && !firestorePlayers.some(f => f.id === m.id || f.username === m.username))
             ]
-          : demoPlayers)
+          : demoPlayers.filter(m => m.id !== 'user-current'))
       : demoPlayers;
   }, [authStatus, firestorePlayers, demoPlayers]);
 
-  // Authenticated & Demo Mode: Exclude blocked users from normal player discovery and listings
+  // Authenticated & Demo Mode: Exclude current user, dummy placeholders, and blocked users from normal player discovery and listings
   const players = useMemo(() => {
-    return allKnownPlayers.filter(p => !blockedUserIds.has(p.id) && (p.uid ? !blockedUserIds.has(p.uid) : true));
-  }, [allKnownPlayers, blockedUserIds]);
+    const currentId = currentUser?.uid || currentUser?.id;
+    return allKnownPlayers.filter(p => {
+      if (p.id === 'user-current') return false;
+      if (currentId && (p.id === currentId || (p.uid && p.uid === currentId))) return false;
+      if (blockedUserIds.has(p.id)) return false;
+      if (p.uid && blockedUserIds.has(p.uid)) return false;
+      return true;
+    });
+  }, [allKnownPlayers, blockedUserIds, currentUser]);
 
   // Blocked players management list (used in user profile/settings)
   const blockedPlayersList = useMemo(() => {
@@ -633,6 +666,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!isSubscribed) return;
         clearTimeout(timeoutId);
         setFirestorePlayers(realPlayers);
+        if (firebaseUser?.uid) {
+          const myProfile = realPlayers.find(p => p.id === firebaseUser.uid || p.uid === firebaseUser.uid);
+          if (myProfile && myProfile.canOrganize !== undefined) {
+            setCurrentUser(prev => prev.canOrganize !== myProfile.canOrganize ? { ...prev, canOrganize: myProfile.canOrganize } : prev);
+          }
+        }
         setIsPlayersLoading(false);
         setPlayersError(null);
       },
@@ -821,11 +860,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseUser(user);
         try {
           const profile = await createOrFetchUserProfile(user);
-          setCurrentUser(profile);
+          const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
+          const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+          setCurrentUser({ ...profile, isAdmin });
           setAuthStatus('authenticated');
           setIsDemoActive(false);
         } catch (err) {
           console.error('Failed to load profile from Firestore:', err);
+          const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
           const fallbackProfile: UserProfile = {
             id: user.uid,
             uid: user.uid,
@@ -841,7 +883,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             gamesHosted: 0,
             attendanceRate: 100,
             isOrganizer: false,
-            isAdmin: user.email === 'Khalidalami5555@gmail.com',
+            isAdmin: isEmailAdmin,
             privacy: { showAge: true, showPhone: false, allowDirectInvites: true },
             isDemoUser: false
           };
@@ -869,7 +911,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsDemoActive(false);
     setFirebaseUser(user);
     const profile = await createOrFetchUserProfile(user);
-    setCurrentUser(profile);
+    const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
+    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
 
@@ -881,7 +925,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name: displayName,
       area: area || 'Salmiya'
     });
-    setCurrentUser(profile);
+    const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
+    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
 
@@ -890,7 +936,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsDemoActive(false);
     setFirebaseUser(user);
     const profile = await createOrFetchUserProfile(user);
-    setCurrentUser(profile);
+    const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
+    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
 
@@ -920,22 +968,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const sendPasswordResetEmailAction = async (email: string): Promise<void> => {
-    if (authStatus === 'authenticated' || !isDemoActive) {
+    // If Firebase Auth is configured, always dispatch the live password reset email
+    if (auth) {
       await sendPasswordReset(email);
-    } else {
-      // Demo Mode: local simulated notice without contacting external servers
-      const notif: AppNotification = {
-        id: 'notif-reset-' + Date.now(),
-        type: 'reminder',
-        title: 'Password Reset Simulated',
-        titleAr: 'محاكاة استعادة كلمة المرور',
-        message: `Password reset email simulated for ${email}. No live email was sent in Demo Mode.`,
-        messageAr: `تمت محاكاة إرسال رابط استعادة كلمة المرور إلى ${email}.`,
-        timestamp: 'Just now',
-        read: false
-      };
-      setDemoNotifications(prev => [notif, ...prev]);
+      return;
     }
+    // Fallback if offline/mock environment without Firebase configuration
+    const notif: AppNotification = {
+      id: 'notif-reset-' + Date.now(),
+      type: 'reminder',
+      title: 'Password Reset Simulated',
+      titleAr: 'محاكاة استعادة كلمة المرور',
+      message: `Password reset email simulated for ${email}. No live email was sent in Demo Mode.`,
+      messageAr: `تمت محاكاة إرسال رابط استعادة كلمة المرور إلى ${email}.`,
+      timestamp: 'Just now',
+      read: false
+    };
+    setDemoNotifications(prev => [notif, ...prev]);
+  };
+
+  const verifyResetCodeAction = async (code: string): Promise<string> => {
+    return await verifyResetCode(code);
+  };
+
+  const confirmResetPasswordAction = async (code: string, newPass: string): Promise<void> => {
+    await confirmResetPassword(code, newPass);
   };
 
   const reauthenticateAction = async (password?: string): Promise<void> => {
@@ -1155,6 +1212,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     court: Court,
     slot: { id: string; date: string; startTime: string; endTime: string; priceKWD: number }
   ): CourtBooking => {
+    if (currentUser?.canOrganize === false) {
+      throw new Error('Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.');
+    }
     const refCode = '#LIB-' + Math.floor(10000 + Math.random() * 90000);
     const newBooking: CourtBooking = {
       id: 'book-' + Date.now(),
@@ -1200,6 +1260,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Post booking as game
   const postBookingAsGame = (booking: CourtBooking) => {
+    if (currentUser?.canOrganize === false) {
+      console.warn('[AppContext] postBookingAsGame blocked: user is restricted from organizing');
+      return;
+    }
     setMyBookings(prev => 
       prev.map(b => b.id === booking.id ? { ...b, hasBeenPostedAsGame: true } : b)
     );
@@ -1235,6 +1299,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Create a Game
   const createGame = async (gameData: Omit<Game, 'id' | 'createdAt' | 'organizer' | 'participants'>): Promise<Game> => {
+    if (currentUser?.canOrganize === false) {
+      throw new Error('Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.');
+    }
     const gameId = 'game-' + Date.now();
 
     // If authenticated with real Firebase account, save game directly to Cloud Firestore `games` collection
@@ -2416,9 +2483,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reason: ReportReason;
     details?: string;
   }): Promise<void> => {
+    const currentId = currentUser?.uid || currentUser?.id;
+    if (report.reportedUserId) {
+      if (report.reportedUserId === currentId) {
+        throw new Error('You cannot report yourself.');
+      }
+      if (report.reportedUserId === 'user-current') {
+        throw new Error('Invalid report target: demo user profiles cannot be reported.');
+      }
+    }
+
     if (authStatus === 'authenticated') {
       try {
         await createReportInFirestore(report);
+        if (currentUser.isAdmin) {
+          await refreshModerationQueue();
+        }
       } catch (err) {
         console.error('[AppContext] Failed to submit report to Firestore:', err);
         throw err;
@@ -2466,6 +2546,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await reviewReportInFirestore(reportId);
+        // Immediately reflect status update in local state for zero-latency Admin Panel refresh
+        setFirestoreReports(prev => prev.map(r => r.id === reportId ? {
+          ...r,
+          status: 'reviewing' as ReportStatus,
+          reviewedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        } : r));
         // Refresh local audit logs
         const updatedLogs = await fetchModerationLogsFromFirestore(50);
         setModerationLogs(updatedLogs);
@@ -2487,6 +2574,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await resolveReportInFirestore(reportId, resolution, reason);
+        // Immediately reflect status update in local state for zero-latency Admin Panel refresh
+        setFirestoreReports(prev => prev.map(r => r.id === reportId ? {
+          ...r,
+          status: 'resolved' as ReportStatus,
+          resolution,
+          resolvedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        } : r));
         const updatedLogs = await fetchModerationLogsFromFirestore(50);
         setModerationLogs(updatedLogs);
       } catch (err) {
@@ -2495,7 +2590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } else {
       // Demo Mode
-      setReports(prev => prev.map(r => r.id === reportId ? { ...r, resolved: true } : r));
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'resolved' as any, resolved: true, resolution } : r));
     }
   };
 
@@ -2506,6 +2601,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await dismissReportInFirestore(reportId, dismissReason);
+        // Immediately reflect status update in local state for zero-latency Admin Panel refresh
+        setFirestoreReports(prev => prev.map(r => r.id === reportId ? {
+          ...r,
+          status: 'dismissed' as ReportStatus,
+          dismissalReason: dismissReason,
+          dismissedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        } : r));
         const updatedLogs = await fetchModerationLogsFromFirestore(50);
         setModerationLogs(updatedLogs);
       } catch (err) {
@@ -2514,7 +2617,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } else {
       // Demo Mode
-      setReports(prev => prev.filter(r => r.id !== reportId));
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'dismissed' as any, resolved: false, dismissalReason: dismissReason } : r));
     }
   };
 
@@ -2558,6 +2661,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } finally {
         setIsModerationLoading(false);
       }
+    }
+  };
+
+  const setAthleteOrganizingStatus = async (
+    userId: string,
+    canOrganize: boolean,
+    reason?: string
+  ): Promise<void> => {
+    if (authStatus === 'authenticated' && !isDemoActive) {
+      try {
+        await setAthleteOrganizingStatusInFirestore(userId, canOrganize, reason);
+        setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, canOrganize } : p));
+        setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, canOrganize } : p));
+        const updatedLogs = await fetchModerationLogsFromFirestore(50);
+        setModerationLogs(updatedLogs);
+      } catch (err) {
+        console.error('[AppContext] Failed to set athlete organizing status:', err);
+        throw err;
+      }
+    } else {
+      // Demo Mode
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, canOrganize } : p));
     }
   };
 
@@ -2770,6 +2895,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         continueAsDemo,
         sendPasswordResetEmailAction,
+        verifyResetCodeAction,
+        confirmResetPasswordAction,
+        resetPasswordModalOpen,
+        setResetPasswordModalOpen,
+        resetPasswordActionCode,
+        setResetPasswordActionCode,
         deleteAccountAction,
         reauthenticateAction,
         checkUsername,
@@ -2860,7 +2991,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resolveModerationReport,
         dismissModerationReport,
         moderateGameCancellation,
-        refreshModerationQueue
+        refreshModerationQueue,
+        setAthleteOrganizingStatus
       }}
     >
       {children}

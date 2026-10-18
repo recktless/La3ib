@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { UserProfile, SportType, SkillLevel, KuwaitArea } from '../types';
+import { UserProfile, SportType, SkillLevel, KuwaitArea, resolvePlayerAvatar } from '../types';
 import { 
   Search, 
   MapPin, 
@@ -631,7 +631,7 @@ export const PlayerDiscoveryTab: React.FC = () => {
                   <div className="space-y-3">
                     <div className="flex items-start gap-3">
                       <img
-                        src={friend.avatar || friend.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'}
+                        src={resolvePlayerAvatar(friend)}
                         alt={friend.name}
                         className="w-12 h-12 rounded-2xl object-cover ring-2 ring-emerald-500/40 shrink-0"
                       />
@@ -904,7 +904,7 @@ export const PlayerDiscoveryTab: React.FC = () => {
                       {/* Top Row: Avatar, Name, Username, Area & Age */}
                       <div className="flex items-start gap-3">
                         <img 
-                          src={player.avatar || player.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'} 
+                          src={resolvePlayerAvatar(player)} 
                           alt={player.name}
                           className="w-12 h-12 rounded-2xl object-cover ring-2 ring-neutral-800 group-hover:ring-emerald-500/40 transition-all shrink-0"
                         />

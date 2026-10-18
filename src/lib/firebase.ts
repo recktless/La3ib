@@ -9,6 +9,9 @@ import {
   onAuthStateChanged, 
   updateProfile,
   sendPasswordResetEmail,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
+  type ActionCodeSettings,
   deleteUser,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
@@ -379,8 +382,19 @@ export function subscribeToAuthState(callback: (user: FirebaseUser | null) => vo
 }
 
 /**
+ * Resolves current application base URL for ActionCodeSettings redirect.
+ */
+export function getAppBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location.origin) {
+    return window.location.origin;
+  }
+  return 'http://localhost:3000';
+}
+
+/**
  * Sends a password reset email using Firebase Auth.
- * Handles malformed emails and suppresses account enumeration leaks.
+ * Configures ActionCodeSettings so the link directs users back to the La3ib application.
+ * Falls back gracefully if the redirect domain is not whitelisted, and suppresses account enumeration leaks.
  */
 export async function sendPasswordReset(email: string): Promise<void> {
   if (!authInstance) throw new Error('Firebase Auth is not configured.');
@@ -389,13 +403,28 @@ export async function sendPasswordReset(email: string): Promise<void> {
     throw new Error('Please enter a valid email address.');
   }
 
+  const actionCodeSettings: ActionCodeSettings = {
+    url: `${getAppBaseUrl()}/`,
+    handleCodeInApp: false,
+  };
+
   try {
-    await sendPasswordResetEmail(authInstance, trimmedEmail);
+    await sendPasswordResetEmail(authInstance, trimmedEmail, actionCodeSettings);
   } catch (err: any) {
     const code = err?.code || '';
     // Prevent email enumeration: act as success if user does not exist
     if (code === 'auth/user-not-found') {
       return;
+    }
+    // If continue URL domain is not yet whitelisted in Firebase Console, fallback to standard email
+    if (code === 'auth/unauthorized-continue-uri') {
+      try {
+        await sendPasswordResetEmail(authInstance, trimmedEmail);
+        return;
+      } catch (fallbackErr: any) {
+        if (fallbackErr?.code === 'auth/user-not-found') return;
+        throw fallbackErr;
+      }
     }
     if (code === 'auth/invalid-email') {
       throw new Error('Please enter a valid email address.');
@@ -409,6 +438,127 @@ export async function sendPasswordReset(email: string): Promise<void> {
     throw err;
   }
 }
+
+/**
+ * Verifies the password reset action code with Firebase Auth.
+ * Returns the associated email address if the code is valid.
+ * Throws specific errors if the code is expired or invalid.
+ */
+export async function verifyResetCode(code: string): Promise<string> {
+  if (!authInstance) throw new Error('Firebase Auth is not configured.');
+  const trimmedCode = code.trim();
+  if (!trimmedCode) {
+    throw new Error('Password reset code is missing or empty.');
+  }
+
+  try {
+    const email = await verifyPasswordResetCode(authInstance, trimmedCode);
+    return email;
+  } catch (err: any) {
+    const errorCode = err?.code || '';
+    if (errorCode === 'auth/expired-action-code') {
+      throw new Error('The password reset link has expired. Please request a new one.');
+    }
+    if (errorCode === 'auth/invalid-action-code') {
+      throw new Error('This password reset link is invalid or has already been used. Please request a new one.');
+    }
+    if (errorCode === 'auth/user-disabled') {
+      throw new Error('This user account has been disabled.');
+    }
+    if (errorCode === 'auth/user-not-found') {
+      throw new Error('No user found associated with this reset link.');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Completes the password reset process by applying the new password with the action code.
+ */
+export async function confirmResetPassword(code: string, newPassword: string): Promise<void> {
+  if (!authInstance) throw new Error('Firebase Auth is not configured.');
+  const trimmedCode = code.trim();
+  if (!trimmedCode) {
+    throw new Error('Password reset code is missing or empty.');
+  }
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('Password must be at least 6 characters long.');
+  }
+
+  try {
+    await confirmPasswordReset(authInstance, trimmedCode, newPassword);
+  } catch (err: any) {
+    const errorCode = err?.code || '';
+    if (errorCode === 'auth/expired-action-code') {
+      throw new Error('The password reset link has expired. Please request a new one.');
+    }
+    if (errorCode === 'auth/invalid-action-code') {
+      throw new Error('This password reset link is invalid or has already been used. Please request a new one.');
+    }
+    if (errorCode === 'auth/weak-password') {
+      throw new Error('Password is too weak. Must be at least 6 characters.');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Parses action code parameters (mode, oobCode, apiKey) from search or hash queries.
+ */
+export interface AuthActionParams {
+  mode: string | null;
+  oobCode: string | null;
+  apiKey: string | null;
+}
+
+export function extractAuthActionParams(
+  urlSearch?: string,
+  urlHash?: string
+): AuthActionParams {
+  const search = urlSearch !== undefined ? urlSearch : (typeof window !== 'undefined' ? window.location.search : '');
+  const hash = urlHash !== undefined ? urlHash : (typeof window !== 'undefined' ? window.location.hash : '');
+
+  const searchParams = new URLSearchParams(search);
+  let mode = searchParams.get('mode');
+  let oobCode = searchParams.get('oobCode');
+  let apiKey = searchParams.get('apiKey');
+
+  if (!mode || !oobCode) {
+    if (hash) {
+      const qIndex = hash.indexOf('?');
+      const hashQuery = qIndex !== -1 ? hash.substring(qIndex) : (hash.startsWith('#') ? hash.substring(1) : hash);
+      const hashParams = new URLSearchParams(hashQuery);
+      if (!mode) mode = hashParams.get('mode');
+      if (!oobCode) oobCode = hashParams.get('oobCode');
+      if (!apiKey) apiKey = hashParams.get('apiKey');
+    }
+  }
+
+  return { mode, oobCode, apiKey };
+}
+
+/**
+ * Removes auth action parameters from window URL to prevent re-submitting an already used oobCode upon page refresh.
+ */
+export function clearAuthActionParams(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('mode');
+    url.searchParams.delete('oobCode');
+    url.searchParams.delete('apiKey');
+    url.searchParams.delete('lang');
+    if (url.hash && url.hash.includes('oobCode')) {
+      url.hash = '';
+    }
+    const newRelative = url.pathname + (url.search ? url.search : '') + (url.hash ? url.hash : '');
+    const title = typeof document !== 'undefined' ? document.title : '';
+    window.history.replaceState({}, title, newRelative);
+  } catch (e) {
+    // Ignore in non-standard environments
+  }
+}
+
 
 /**
  * Re-authenticates the current user before sensitive operations like account deletion.
@@ -822,12 +972,17 @@ export async function createOrFetchUserProfile(
     }
   }
 
-  // If public profile already existed, return it merged with the user's private email
+  // Determine admin privileges (case-insensitive check for verified project admin and Firestore admins doc)
+  const isEmailAdmin = (resolvedEmail.toLowerCase().trim() === 'khalidalami5555@gmail.com') && Boolean(firebaseUser.emailVerified);
+  const isUserAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
+
+  // If public profile already existed, return it merged with the user's private email and verified admin status
   if (existingPublicData) {
     const { email: _omit, ...cleanPublicProfile } = existingPublicData;
     return {
       ...cleanPublicProfile,
-      email: resolvedEmail
+      email: resolvedEmail,
+      isAdmin: isUserAdmin || Boolean(cleanPublicProfile.isAdmin)
     } as UserProfile;
   }
 
@@ -878,7 +1033,8 @@ export async function createOrFetchUserProfile(
     followingCount: 0,
     attendanceRate: 100,
     isOrganizer: false,
-    isAdmin: resolvedEmail === 'Khalidalami5555@gmail.com',
+    canOrganize: true,
+    isAdmin: isUserAdmin,
     age: initialInfo?.age || 25,
     privacy: {
       showAge: true,
@@ -4259,8 +4415,13 @@ export async function createReportInFirestore(report: {
     throw new Error('A report must specify either a reported player or a reported game.');
   }
 
-  if (report.reportedUserId && report.reportedUserId === currentUserId) {
-    throw new Error('You cannot report yourself.');
+  if (report.reportedUserId) {
+    if (report.reportedUserId === currentUserId) {
+      throw new Error('You cannot report yourself.');
+    }
+    if (report.reportedUserId === 'user-current') {
+      throw new Error('Invalid report target: demo user profiles cannot be reported.');
+    }
   }
 
   const validReasons: ReportReason[] = [
@@ -4291,6 +4452,11 @@ export async function createReportInFirestore(report: {
         return reportId;
       }
     }
+  } catch (_readErr) {
+    // If getDoc failed because the document does not exist yet, proceed to create it
+  }
+
+  try {
 
     const nowISO = new Date().toISOString();
     const payload: Record<string, any> = {
@@ -4334,7 +4500,23 @@ export async function checkIsAdminInFirestore(): Promise<boolean> {
   if (!currentAuthUser?.uid) return false;
 
   const userEmail = (currentAuthUser.email || '').toLowerCase().trim();
-  if (userEmail === 'khalidalami5555@gmail.com') {
+  const isEmailVerified = Boolean(currentAuthUser.emailVerified);
+  if (userEmail === 'khalidalami5555@gmail.com' && isEmailVerified) {
+    // Proactively ensure admins/{uid} document exists for future RBAC lookups
+    try {
+      const adminDocRef = doc(dbInstance, 'admins', currentAuthUser.uid);
+      const snap = await getDoc(adminDocRef);
+      if (!snap.exists()) {
+        await setDoc(adminDocRef, {
+          email: userEmail,
+          uid: currentAuthUser.uid,
+          role: 'admin',
+          createdAt: new Date().toISOString()
+        });
+      }
+    } catch {
+      // Non-blocking if offline or restricted
+    }
     return true;
   }
 
@@ -4408,44 +4590,55 @@ export async function fetchReportsFromFirestore(options?: {
   const reportsCol = collection(dbInstance, 'reports');
 
   try {
-    let q;
-    if (options?.status && options.status !== 'all') {
-      q = query(
-        reportsCol,
-        where('status', '==', options.status),
-        orderBy('createdAt', 'desc'),
-        limit(maxLimit)
-      );
-    } else {
-      q = query(
-        reportsCol,
-        orderBy('createdAt', 'desc'),
-        limit(maxLimit)
-      );
+    let snap;
+    try {
+      let q;
+      if (options?.status && options.status !== 'all') {
+        q = query(
+          reportsCol,
+          where('status', '==', options.status),
+          orderBy('createdAt', 'desc'),
+          limit(maxLimit)
+        );
+      } else {
+        q = query(
+          reportsCol,
+          orderBy('createdAt', 'desc'),
+          limit(maxLimit)
+        );
+      }
+      snap = await getDocs(q);
+    } catch (queryErr) {
+      console.warn('[Firestore Reports] Specific query failed, attempting unindexed fallback:', queryErr);
+      const fallbackQ = query(reportsCol, limit(maxLimit));
+      snap = await getDocs(fallbackQ);
     }
 
-    const snap = await getDocs(q);
     const results: ReportDocument[] = [];
     snap.forEach(d => {
       const data = d.data();
-      results.push({
-        id: d.id,
-        reporterId: data.reporterId || '',
-        reportedUserId: data.reportedUserId || undefined,
-        reportedGameId: data.reportedGameId || undefined,
-        reason: data.reason || 'other',
-        details: data.details || undefined,
-        status: (data.status as ReportStatus) || 'open',
-        createdAt: data.createdAt || new Date().toISOString(),
-        updatedAt: data.updatedAt || undefined,
-        moderatorId: data.moderatorId || undefined,
-        resolution: data.resolution || undefined,
-        dismissalReason: data.dismissalReason || undefined,
-        resolvedAt: data.resolvedAt || undefined,
-        dismissedAt: data.dismissedAt || undefined,
-        reviewedAt: data.reviewedAt || undefined
-      });
+      if (!options?.status || options.status === 'all' || data.status === options.status) {
+        results.push({
+          id: d.id,
+          reporterId: data.reporterId || '',
+          reportedUserId: data.reportedUserId || undefined,
+          reportedGameId: data.reportedGameId || undefined,
+          reason: data.reason || 'other',
+          details: data.details || undefined,
+          status: (data.status as ReportStatus) || 'open',
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || undefined,
+          moderatorId: data.moderatorId || undefined,
+          resolution: data.resolution || undefined,
+          dismissalReason: data.dismissalReason || undefined,
+          resolvedAt: data.resolvedAt || undefined,
+          dismissedAt: data.dismissedAt || undefined,
+          reviewedAt: data.reviewedAt || undefined
+        });
+      }
     });
+
+    results.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     return results;
   } catch (err: any) {
     console.error('[Firestore Reports] Failed to fetch reports:', err);
@@ -4470,28 +4663,11 @@ export function subscribeToReportsInFirestore(
   const reportsCol = collection(dbInstance, 'reports');
   const maxLimit = Math.min(100, Math.max(1, limitCount));
 
-  let q;
-  if (statusFilter && statusFilter !== 'all') {
-    q = query(
-      reportsCol,
-      where('status', '==', statusFilter),
-      orderBy('createdAt', 'desc'),
-      limit(maxLimit)
-    );
-  } else {
-    q = query(
-      reportsCol,
-      orderBy('createdAt', 'desc'),
-      limit(maxLimit)
-    );
-  }
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      const items: ReportDocument[] = [];
-      snap.forEach(d => {
-        const data = d.data();
+  const mapSnapshot = (snap: any) => {
+    const items: ReportDocument[] = [];
+    snap.forEach((d: any) => {
+      const data = d.data();
+      if (!statusFilter || statusFilter === 'all' || data.status === statusFilter) {
         items.push({
           id: d.id,
           reporterId: data.reporterId || '',
@@ -4509,14 +4685,45 @@ export function subscribeToReportsInFirestore(
           dismissedAt: data.dismissedAt || undefined,
           reviewedAt: data.reviewedAt || undefined
         });
-      });
-      onReports(items);
-    },
-    (err) => {
-      console.warn('[Firestore Reports] Snapshot error in subscribeToReports:', err);
-      if (onError) onError(err);
-    }
-  );
+      }
+    });
+    items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    onReports(items);
+  };
+
+  try {
+    const q = query(reportsCol, orderBy('createdAt', 'desc'), limit(maxLimit));
+    return onSnapshot(
+      q,
+      mapSnapshot,
+      (err) => {
+        console.warn('[Firestore Reports] Primary snapshot listener error, attempting fallback query:', err);
+        try {
+          const fallbackQ = query(reportsCol, limit(maxLimit));
+          return onSnapshot(
+            fallbackQ,
+            mapSnapshot,
+            (fallbackErr) => {
+              console.warn('[Firestore Reports] Fallback snapshot listener error:', fallbackErr);
+              if (onError) onError(fallbackErr);
+            }
+          );
+        } catch {
+          if (onError) onError(err);
+        }
+      }
+    );
+  } catch {
+    const fallbackQ = query(reportsCol, limit(maxLimit));
+    return onSnapshot(
+      fallbackQ,
+      mapSnapshot,
+      (err) => {
+        console.warn('[Firestore Reports] Snapshot error in subscribeToReports:', err);
+        if (onError) onError(err);
+      }
+    );
+  }
 }
 
 /**
@@ -4792,6 +4999,136 @@ export async function fetchModerationLogsFromFirestore(limitCount = 50): Promise
   } catch (err: any) {
     console.error('[Firestore Moderation] Failed to fetch moderation logs:', err);
     handleFirestoreError(err, OperationType.LIST, 'moderationLogs');
+  }
+}
+
+/**
+ * Fetches recent moderation audit logs specifically targeting a particular user or game.
+ * Used in the Report Investigation Case File and Athlete Moderation History.
+ */
+export async function fetchTargetModerationHistory(
+  targetId: string, 
+  limitCount = 15
+): Promise<ModerationLogEntry[]> {
+  if (!dbInstance || !targetId) return [];
+
+  const maxLimit = Math.min(50, Math.max(1, limitCount));
+  const logsCol = collection(dbInstance, 'moderationLogs');
+  
+  try {
+    const q = query(
+      logsCol, 
+      where('targetId', '==', targetId), 
+      limit(maxLimit)
+    );
+    const snap = await getDocs(q);
+    const logs: ModerationLogEntry[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      logs.push({
+        id: d.id,
+        moderatorId: data.moderatorId || '',
+        action: data.action as ModerationAction,
+        targetType: data.targetType as ModerationTargetType,
+        targetId: data.targetId || targetId,
+        reportId: data.reportId || undefined,
+        reason: data.reason || undefined,
+        resolution: data.resolution || undefined,
+        createdAt: data.createdAt || new Date().toISOString(),
+        createdAtISO: data.createdAtISO || data.createdAt || new Date().toISOString()
+      });
+    });
+    logs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return logs;
+  } catch (err: any) {
+    console.warn(`[Firestore Moderation] Could not fetch target history for ${targetId}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Fetches public athlete profiles from Firestore for the admin player directory.
+ * Bounded query prevents unbounded reads.
+ */
+export async function fetchAthleteDirectory(limitCount = 60): Promise<UserProfile[]> {
+  if (!dbInstance) return [];
+
+  const maxLimit = Math.min(100, Math.max(1, limitCount));
+  const usersCol = collection(dbInstance, 'users');
+  const q = query(usersCol, limit(maxLimit));
+
+  try {
+    const snap = await getDocs(q);
+    const profiles: UserProfile[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      profiles.push({
+        id: d.id,
+        uid: data.uid || d.id,
+        name: data.name || 'Athlete',
+        nameAr: data.nameAr || undefined,
+        username: data.username || `athlete_${d.id.slice(0, 5)}`,
+        avatar: data.avatar || '',
+        area: data.area || 'Kuwait City',
+        bio: data.bio || '',
+        favoriteSports: Array.isArray(data.favoriteSports) ? data.favoriteSports : ['Padel'],
+        skills: data.skills || {},
+        gamesPlayed: typeof data.gamesPlayed === 'number' ? data.gamesPlayed : 0,
+        gamesHosted: typeof data.gamesHosted === 'number' ? data.gamesHosted : 0,
+        attendanceRate: typeof data.attendanceRate === 'number' ? data.attendanceRate : 100,
+        isOrganizer: Boolean(data.isOrganizer),
+        canOrganize: data.canOrganize !== false,
+        isAdmin: Boolean(data.isAdmin),
+        followerCount: data.followerCount || 0,
+        followingCount: data.followingCount || 0,
+        friendCount: data.friendCount || 0,
+        privacy: data.privacy || { showAge: true, showPhone: false, allowDirectInvites: true },
+        createdAt: data.createdAt || undefined,
+        updatedAt: data.updatedAt || undefined
+      });
+    });
+    return profiles;
+  } catch (err: any) {
+    console.error('[Firestore Athlete Directory] Failed to fetch directory:', err);
+    handleFirestoreError(err, OperationType.LIST, 'users');
+  }
+}
+
+/**
+ * Sets an athlete's match-organizing privilege (`canOrganize`).
+ * Authorized for trusted administrators only.
+ */
+export async function setAthleteOrganizingStatus(
+  userId: string, 
+  canOrganize: boolean,
+  reason?: string
+): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const currentAuthUser = authInstance?.currentUser;
+  if (!currentAuthUser?.uid) {
+    throw new Error('User must be authenticated to update athlete privileges.');
+  }
+
+  const userDocRef = doc(dbInstance, 'users', userId);
+  const nowISO = new Date().toISOString();
+
+  try {
+    await updateDoc(userDocRef, {
+      canOrganize,
+      updatedAt: nowISO
+    });
+
+    await logModerationAction({
+      action: 'resolve_report',
+      targetType: 'user',
+      targetId: userId,
+      reason: reason || (canOrganize ? 'Organizer privilege restored' : 'Organizer privilege restricted due to policy violation')
+    });
+
+    console.log(`[Moderation] Set canOrganize = ${canOrganize} for user ${userId}`);
+  } catch (err: any) {
+    console.error(`[Moderation] Failed to set organizing status for ${userId}:`, err);
+    handleFirestoreError(err, OperationType.UPDATE, `users/${userId}`);
   }
 }
 

@@ -13,6 +13,7 @@ import {
   Share2, 
   ExternalLink,
   ShieldCheck,
+  ShieldAlert,
   ChevronRight,
   Info
 } from 'lucide-react';
@@ -24,8 +25,13 @@ export const Li3ibBookingModal: React.FC = () => {
     setBookingModalOpen, 
     bookCourtViaLi3ib, 
     postBookingAsGame,
+    currentUser,
+    authStatus,
     t 
   } = useApp();
+
+  const isRestricted = currentUser?.canOrganize === false;
+  const isPrivilegeLoading = authStatus === 'loading';
 
   const [selectedSport, setSelectedSport] = useState<SportType | 'All'>('All');
   const [selectedCourt, setSelectedCourt] = useState<Court | null>(courts[0] || null);
@@ -49,6 +55,7 @@ export const Li3ibBookingModal: React.FC = () => {
   };
 
   const handleConfirmLi3ibBooking = () => {
+    if (isRestricted || isPrivilegeLoading) return;
     if (!selectedCourt) return;
     const slot = selectedCourt.availableSlots.find(s => s.id === selectedSlotId) || selectedCourt.availableSlots[0];
     if (!slot) return;
@@ -62,7 +69,7 @@ export const Li3ibBookingModal: React.FC = () => {
   };
 
   const handlePostBookingToGame = () => {
-    if (!completedBooking) return;
+    if (isRestricted || isPrivilegeLoading || !completedBooking) return;
     postBookingAsGame(completedBooking);
     setCompletedBooking(null);
   };
@@ -103,6 +110,30 @@ export const Li3ibBookingModal: React.FC = () => {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Prominent Restriction Warning Banner */}
+        {isRestricted && (
+          <div 
+            data-testid="booking-restricted-banner"
+            role="alert"
+            className="p-4 sm:p-5 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-amber-950/80 border-b-2 border-amber-500/50 shadow-md shadow-amber-950/30 text-amber-100 flex items-start gap-3.5"
+          >
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+              <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <div className="flex-1 space-y-1 text-left rtl:text-right">
+              <h3 className="font-black text-sm sm:text-base text-amber-300">
+                {t('Booking Restricted', 'الحجز مقيد')}
+              </h3>
+              <p className="text-xs sm:text-sm text-amber-200/90 leading-relaxed font-medium">
+                {t(
+                  'Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.',
+                  'حسابك غير مصرح له حالياً بإنشاء مباريات أو حجز الملاعب. يرجى التواصل مع الإدارة للمساعدة.'
+                )}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Content Body */}
         {completedBooking ? (
@@ -157,13 +188,31 @@ export const Li3ibBookingModal: React.FC = () => {
                   'انشر هذا الحجز في لعيب! سنقوم باستيراد بيانات الملعب والوقت تلقائياً وحساب حصة كل لاعب ليدفعوا لك مباشرة.'
                 )}
               </p>
-              <button
-                onClick={handlePostBookingToGame}
-                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 font-black text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer transition-transform transform active:scale-98"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>{t('Post This Booking for Players to Join', 'انشر الحجز لفتح انضمام اللاعبين')}</span>
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  onClick={handlePostBookingToGame}
+                  disabled={isRestricted || isPrivilegeLoading}
+                  aria-label="Post Booking"
+                  onKeyDown={(e) => {
+                    if (isRestricted || isPrivilegeLoading) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className={`w-full py-3.5 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${
+                    isRestricted || isPrivilegeLoading
+                      ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed opacity-60 shadow-none'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 shadow-lg shadow-emerald-500/25 cursor-pointer transform active:scale-98'
+                  }`}
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>{t('Post Booking for Players to Join', 'انشر الحجز لفتح انضمام اللاعبين')}</span>
+                </button>
+                {isRestricted && (
+                  <p className="text-[11px] text-amber-400 font-semibold text-center">
+                    {t('Action disabled: your account is restricted from organizing games', 'الإجراء معطل: حسابك مقيد من تنظيم المباريات')}
+                  </p>
+                )}
+              </div>
             </div>
 
             <button
@@ -354,20 +403,37 @@ export const Li3ibBookingModal: React.FC = () => {
                     </span>
                   </div>
 
-                  <button
-                    onClick={handleConfirmLi3ibBooking}
-                    disabled={isBookingSubmitting}
-                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-neutral-950 font-black text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all transform active:scale-98 disabled:opacity-50"
-                  >
-                    {isBookingSubmitting ? (
-                      <span className="animate-pulse">{t('Confirming via Li3ib...', 'جاري التأكيد عبر Li3ib...')}</span>
-                    ) : (
-                      <>
-                        <span>{t('Book Court via Li3ib', 'احجز الملعب عبر Li3ib')}</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </>
+                  <div className="flex flex-col items-end gap-1 flex-1">
+                    <button
+                      onClick={handleConfirmLi3ibBooking}
+                      disabled={isRestricted || isPrivilegeLoading || isBookingSubmitting}
+                      aria-label="Book a Pitch"
+                      onKeyDown={(e) => {
+                        if (isRestricted || isPrivilegeLoading) {
+                          e.preventDefault();
+                        }
+                      }}
+                      className={`w-full py-3 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${
+                        isRestricted || isPrivilegeLoading
+                          ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed opacity-60 shadow-none'
+                          : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-neutral-950 shadow-lg shadow-emerald-500/20 cursor-pointer transform active:scale-98 disabled:opacity-50'
+                      }`}
+                    >
+                      {isBookingSubmitting ? (
+                        <span className="animate-pulse">{t('Confirming via Li3ib...', 'جاري التأكيد عبر Li3ib...')}</span>
+                      ) : (
+                        <>
+                          <span>{t('Book a Pitch via Li3ib', 'احجز الملعب عبر Li3ib')}</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                    {isRestricted && (
+                      <span className="text-[11px] text-amber-400 font-semibold text-right rtl:text-left">
+                        {t('Action disabled: your account is restricted from booking pitches', 'الإجراء معطل: حسابك مقيد من حجز الملاعب')}
+                      </span>
                     )}
-                  </button>
+                  </div>
                 </div>
               </div>
             )}

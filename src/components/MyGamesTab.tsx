@@ -13,7 +13,8 @@ import {
   Lock,
   LogIn,
   Loader2,
-  Crown
+  Crown,
+  ShieldAlert
 } from 'lucide-react';
 import { Game } from '../types';
 import { isGamePast } from '../lib/firebase';
@@ -35,6 +36,9 @@ export const MyGamesTab: React.FC = () => {
     confirmAttendance,
     t 
   } = useApp();
+
+  const isRestricted = currentUser?.canOrganize === false;
+  const isPrivilegeLoading = authStatus === 'loading';
 
   const [activeSubTab, setActiveSubTab] = useState<'upcoming' | 'past' | 'bookings'>('upcoming');
 
@@ -380,6 +384,30 @@ export const MyGamesTab: React.FC = () => {
       {/* LI3IB BOOKINGS TAB */}
       {activeSubTab === 'bookings' && (
         <div className="space-y-4">
+          {/* Prominent Restriction Warning Banner */}
+          {isRestricted && (
+            <div 
+              data-testid="booking-restricted-banner"
+              role="alert"
+              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-950/80 via-neutral-900 to-amber-950/80 border-2 border-amber-500/60 shadow-lg shadow-amber-950/40 text-amber-100 flex items-start gap-3.5 mb-4"
+            >
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <div className="flex-1 space-y-1 text-left rtl:text-right">
+                <h3 className="font-black text-sm sm:text-base text-amber-300">
+                  {t('Booking Restricted', 'الحجز مقيد')}
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-200/90 leading-relaxed font-medium">
+                  {t(
+                    'Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.',
+                    'حسابك غير مصرح له حالياً بإنشاء مباريات أو حجز الملاعب. يرجى التواصل مع الإدارة للمساعدة.'
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {myBookings.map((b) => (
               <div 
@@ -421,13 +449,34 @@ export const MyGamesTab: React.FC = () => {
                       <span>{t('Posted to La3ib Matches', 'تم نشرها كمباراة في لعيب')}</span>
                     </span>
                   ) : (
-                    <button
-                      onClick={() => postBookingAsGame(b)}
-                      className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-colors cursor-pointer"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>{t('Post Booking to Fill Remaining Spots', 'انشر الحجز لتقاسم التكلفة مع لاعبين')}</span>
-                    </button>
+                    <div className="w-full space-y-1">
+                      <button
+                        onClick={() => {
+                          if (isRestricted || isPrivilegeLoading) return;
+                          postBookingAsGame(b);
+                        }}
+                        disabled={isRestricted || isPrivilegeLoading}
+                        aria-label="Post Booking"
+                        onKeyDown={(e) => {
+                          if (isRestricted || isPrivilegeLoading) {
+                            e.preventDefault();
+                          }
+                        }}
+                        className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all ${
+                          isRestricted || isPrivilegeLoading
+                            ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed opacity-60 shadow-none'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950 shadow-md shadow-emerald-500/20 cursor-pointer'
+                        }`}
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>{t('Post Booking to Fill Remaining Spots', 'انشر الحجز لتقاسم التكلفة مع لاعبين')}</span>
+                      </button>
+                      {isRestricted && (
+                        <span className="text-[10px] text-amber-400 font-semibold block text-center">
+                          {t('Action disabled: account restricted from organizing games', 'الإجراء معطل: الحساب مقيد من تنظيم المباريات')}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

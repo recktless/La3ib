@@ -12,7 +12,7 @@ import {
   LogOut,
   UserCheck
 } from 'lucide-react';
-import { KuwaitArea } from '../types';
+import { KuwaitArea, resolvePlayerAvatar } from '../types';
 
 const KUWAIT_AREAS: (KuwaitArea | 'All Kuwait')[] = [
   'All Kuwait',
@@ -186,7 +186,7 @@ export const Header: React.FC = () => {
               >
                 <div className="relative">
                   <img 
-                    src={currentUser.avatar} 
+                    src={resolvePlayerAvatar(currentUser)} 
                     alt={currentUser.name}
                     className={`w-9 h-9 rounded-full object-cover ring-2 transition-all ${
                       authStatus === 'demo' 

@@ -170,6 +170,57 @@ export interface ChatMessage {
   isAnnouncement?: boolean;
 }
 
+export type CostSharingMethod = 'cash' | 'wamd' | 'request_link';
+
+export interface GameCostSharing {
+  enabled: boolean;
+  methods?: CostSharingMethod[];
+  method?: CostSharingMethod; // Preserved for backwards compatibility with legacy games
+  estimatedShare?: number;
+  currency?: string;
+}
+
+/**
+ * Normalizes cost-sharing methods from a game, supporting both multi-method games
+ * and legacy single-method games without destructive migrations.
+ */
+export function getCostSharingMethods(costSharing?: GameCostSharing | null): CostSharingMethod[] {
+  if (!costSharing || !costSharing.enabled) return [];
+  if (Array.isArray(costSharing.methods) && costSharing.methods.length > 0) {
+    return costSharing.methods;
+  }
+  if (costSharing.method) {
+    return [costSharing.method];
+  }
+  return [];
+}
+
+/**
+ * Checks whether a specific cost-sharing method is enabled on a game.
+ */
+export function isCostSharingMethodSelected(
+  costSharing: GameCostSharing | null | undefined, 
+  method: CostSharingMethod
+): boolean {
+  return getCostSharingMethods(costSharing).includes(method);
+}
+
+export type PaymentLinkRequestStatus = 'pending' | 'handled';
+
+export interface PaymentLinkRequest {
+  id: string; // requesterId
+  gameId: string;
+  gameTitle?: string;
+  requesterId: string;
+  requesterName: string;
+  requesterAvatar?: string;
+  hostId: string;
+  status: PaymentLinkRequestStatus;
+  createdAt: string;
+  handledAt?: string;
+  paymentLinkUrl?: string;
+}
+
 export interface Game {
   id: string;
   title: string;
@@ -188,6 +239,7 @@ export interface Game {
   participantIds?: string[];
   totalCourtCostKWD: number;
   pricePerPlayerKWD: number;
+  costSharing?: GameCostSharing;
   skillLevel: SkillLevel;
   gender: GenderPreference;
   visibility: GameVisibility;
@@ -233,7 +285,9 @@ export type NotificationType =
   | 'chat_message'
   | 'friend_request'
   | 'friend_request_accepted'
-  | 'game_invite';
+  | 'game_invite'
+  | 'payment_link_request'
+  | 'payment_link_provided';
 
 export type DemoNotificationType = 
   | NotificationType

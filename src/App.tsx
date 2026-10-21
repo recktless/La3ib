@@ -44,6 +44,7 @@ const AppContent: React.FC = () => {
       }`}
       dir={language === 'ar' ? 'rtl' : 'ltr'}
     >
+
       {/* Top Universal App Header */}
       <Header />
 

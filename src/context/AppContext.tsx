@@ -24,7 +24,12 @@ import {
   ModerationLogEntry,
   ModerationAction,
   DEFAULT_GUEST_AVATAR,
-  resolvePlayerAvatar
+  resolvePlayerAvatar,
+  PaymentLinkRequest,
+  CostSharingMethod,
+  GameCostSharing,
+  getCostSharingMethods,
+  isCostSharingMethodSelected
 } from '../types';
 import { 
   CURRENT_USER, 
@@ -109,7 +114,9 @@ import {
   deleteCurrentUserAccount,
   reauthenticateCurrentUser,
   checkUsernameAvailability,
-  mapFirebaseAuthError
+  mapFirebaseAuthError,
+  requestPaymentLinkInFirestore,
+  markPaymentLinkRequestHandledInFirestore
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
@@ -222,7 +229,7 @@ interface AppContextType {
   bookCourtViaLi3ib: (court: Court, slot: { id: string; date: string; startTime: string; endTime: string; priceKWD: number }) => CourtBooking;
   postBookingAsGame: (booking: CourtBooking) => void;
   createGame: (gameData: Omit<Game, 'id' | 'createdAt' | 'organizer' | 'participants'>) => Promise<Game>;
-  joinGame: (gameId: string, paymentMethod: 'KNET' | 'Apple Pay' | 'Credit Card') => Promise<boolean>;
+  joinGame: (gameId: string, paymentMethod?: 'KNET' | 'Apple Pay' | 'Credit Card') => Promise<boolean>;
   leaveGame: (gameId: string) => Promise<boolean>;
   sendChatMessage: (gameId: string, text: string, isAnnouncement?: boolean) => Promise<void>;
   followingUserIds: Set<string>;
@@ -292,6 +299,12 @@ interface AppContextType {
   moderateGameCancellation: (gameId: string, reason: string, reportId?: string) => Promise<void>;
   refreshModerationQueue: () => Promise<void>;
   setAthleteOrganizingStatus: (userId: string, canOrganize: boolean, reason?: string) => Promise<void>;
+
+  // Payment Link Requests (Cost Sharing)
+  paymentLinkRequests: Record<string, PaymentLinkRequest[]>;
+  requestPaymentLink: (gameId: string) => Promise<PaymentLinkRequest>;
+  markPaymentLinkRequestHandled: (gameId: string, requesterId: string) => Promise<void>;
+  getPaymentLinkRequests: (gameId: string) => PaymentLinkRequest[];
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -861,13 +874,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
           const profile = await createOrFetchUserProfile(user);
           const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
-          const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+          const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
           setCurrentUser({ ...profile, isAdmin });
           setAuthStatus('authenticated');
           setIsDemoActive(false);
         } catch (err) {
           console.error('Failed to load profile from Firestore:', err);
           const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
+          const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
           const fallbackProfile: UserProfile = {
             id: user.uid,
             uid: user.uid,
@@ -883,7 +897,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             gamesHosted: 0,
             attendanceRate: 100,
             isOrganizer: false,
-            isAdmin: isEmailAdmin,
+            isAdmin,
             privacy: { showAge: true, showPhone: false, allowDirectInvites: true },
             isDemoUser: false
           };
@@ -895,7 +909,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseUser(null);
         if (isDemoActive) {
           setAuthStatus('demo');
-          setCurrentUser({ ...CURRENT_USER, isDemoUser: true });
+          setCurrentUser({ ...CURRENT_USER, isDemoUser: true, isAdmin: false });
         } else {
           setAuthStatus('unauthenticated');
           setCurrentUser(GUEST_USER);
@@ -912,7 +926,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFirebaseUser(user);
     const profile = await createOrFetchUserProfile(user);
     const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
-    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
     setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
@@ -926,7 +940,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       area: area || 'Salmiya'
     });
     const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
-    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
     setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
@@ -937,7 +951,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFirebaseUser(user);
     const profile = await createOrFetchUserProfile(user);
     const isEmailAdmin = (user.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com' && Boolean(user.emailVerified);
-    const isAdmin = Boolean(profile.isAdmin || isEmailAdmin || await checkIsAdminInFirestore());
+    const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
     setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
   };
@@ -1328,6 +1342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           totalCost: gameData.totalCourtCostKWD,
           pricePerPlayerKWD: gameData.pricePerPlayerKWD,
           pricePerPlayer: gameData.pricePerPlayerKWD,
+          costSharing: gameData.costSharing,
           skillLevel: gameData.skillLevel,
           gender: gameData.gender,
           visibility: gameData.visibility,
@@ -1352,6 +1367,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newGame: Game = {
       ...gameData,
       id: gameId,
+      costSharing: gameData.costSharing,
       createdAt: new Date().toISOString(),
       organizer: effectiveOrganizer,
       participants: [
@@ -1422,8 +1438,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newGame;
   };
 
-  // Join a Game & Pay
-  const joinGame = async (gameId: string, paymentMethod: 'KNET' | 'Apple Pay' | 'Credit Card'): Promise<boolean> => {
+  // Join a Game
+  const joinGame = async (gameId: string, paymentMethod?: 'KNET' | 'Apple Pay' | 'Credit Card'): Promise<boolean> => {
     // 1. Authentication check: If not in demo mode and not authenticated, user must sign in first
     if (!isDemoActive && !firebaseUser) {
       setAuthModalMode('login');
@@ -1478,7 +1494,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         avatar: currentUser.avatar,
         skill: currentUser.skills[target.sport] || 'Casual',
         paymentStatus: 'Paid' as const,
-        paidAmountKWD: target.pricePerPlayerKWD,
+        paidAmountKWD: target.costSharing?.enabled ? (target.costSharing.estimatedShare ?? target.pricePerPlayerKWD) : 0,
         joinedAt: new Date().toISOString(),
         paymentMethod: paymentMethod,
         attendanceConfirmed: false
@@ -1522,7 +1538,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               senderId: 'system',
               senderName: 'La3ib Bot',
               senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80',
-              text: `${currentUser.name} joined the game and paid ${target.pricePerPlayerKWD.toFixed(3)} KWD via ${paymentMethod}.`,
+              text: `${currentUser.name} joined the game.`,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }
           ]
@@ -1532,11 +1548,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Add notification
       const newNotif: AppNotification = {
         id: 'notif-' + Date.now(),
-        type: 'payment',
-        title: 'Booking Share Paid ✓',
-        titleAr: 'تم دفع حصتك وتأكيد المكان ✓',
-        message: `You joined "${target.title}". Payment of ${target.pricePerPlayerKWD.toFixed(3)} KWD confirmed via ${paymentMethod}.`,
-        messageAr: `تم انضمامك إلى "${target.title}". تم تأكيد الدفع بمبلغ ${target.pricePerPlayerKWD.toFixed(3)} د.ك بنجاح.`,
+        type: 'joined',
+        title: 'Spot Confirmed ✓',
+        titleAr: 'تم تأكيد الانضمام للمباراة ✓',
+        message: `You joined "${target.title}". Your spot is reserved.`,
+        messageAr: `تم انضمامك إلى "${target.title}". تم تأكيد حجز مكانك بنجاح.`,
         timestamp: 'Just now',
         read: false,
         gameId: gameId
@@ -1643,11 +1659,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const notif: AppNotification = {
       id: 'notif-leave-' + Date.now(),
-      type: 'payment',
-      title: 'Refund Processed',
-      titleAr: 'تمت معالجة استرجاع المبلغ',
-      message: `You left "${target.title}". Your share will be refunded back to your payment account.`,
-      messageAr: `لقد غادرت "${target.title}". سيتم استرجاع حصتك المدفوعة إلى حسابك.`,
+      type: 'game_leave',
+      title: 'Left Match',
+      titleAr: 'تمت مغادرة المباراة',
+      message: `You left "${target.title}".`,
+      messageAr: `لقد غادرت المباراة "${target.title}".`,
       timestamp: 'Just now',
       read: false
     };
@@ -2417,6 +2433,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       if (authStatus === 'authenticated') {
         await blockPlayerInFirestore(blockedUserId);
+        // Also cleanup local demo relationships if the target was a demo player
+        setDemoFollowingIds(prev => {
+          if (!prev.has(blockedUserId)) return prev;
+          const next = new Set(prev);
+          next.delete(blockedUserId);
+          return next;
+        });
+        setDemoFriendIds(prev => {
+          if (!prev.has(blockedUserId)) return prev;
+          const next = new Set(prev);
+          next.delete(blockedUserId);
+          return next;
+        });
+        setDemoIncomingRequests(prev => prev.filter(r => r.requesterId !== blockedUserId));
+        setDemoOutgoingRequests(prev => {
+          if (!prev.has(blockedUserId)) return prev;
+          const next = new Set(prev);
+          next.delete(blockedUserId);
+          return next;
+        });
       } else {
         // Demo Mode: isolated local state, no Firestore writes
         setDemoBlockedUserIds(prev => new Set(prev).add(blockedUserId));
@@ -2687,11 +2723,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCurrentUserProfile = async (updates: Partial<UserProfile>) => {
-    setCurrentUser(prev => ({ ...prev, ...updates }));
+    // Strip privileged fields that cannot be self-assigned by a normal user
+    const { isAdmin: _omitAdmin, role: _omitRole, canOrganize: _omitOrganize, ...safeUpdates } = updates as any;
+    setCurrentUser(prev => ({ ...prev, ...safeUpdates, isAdmin: prev.isAdmin }));
 
     if (authStatus === 'authenticated' && firebaseUser) {
       try {
-        await updateUserProfileInFirestore(firebaseUser.uid, updates);
+        await updateUserProfileInFirestore(firebaseUser.uid, safeUpdates);
       } catch (err) {
         console.error('Failed to sync updated profile to Firestore:', err);
         throw err;
@@ -2862,6 +2900,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Payment Link Requests State & Handlers
+  const [demoPaymentLinkRequests, setDemoPaymentLinkRequests] = useState<Record<string, PaymentLinkRequest[]>>({});
+
+  const getPaymentLinkRequests = (gameId: string): PaymentLinkRequest[] => {
+    return demoPaymentLinkRequests[gameId] || [];
+  };
+
+  const handleRequestPaymentLink = async (gameId: string): Promise<PaymentLinkRequest> => {
+    const targetGame = games.find(g => g.id === gameId) || myGames.find(g => g.id === gameId);
+    if (!targetGame) throw new Error('Game not found.');
+
+    const hostId = targetGame.organizer.id || (targetGame as any).organizerId;
+    const effectiveUserId = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    const requesterName = currentUser.name || 'Player';
+    const requesterAvatar = currentUser.avatar || '';
+
+    if (effectiveUserId === hostId) {
+      throw new Error('Host cannot request a payment link from themselves.');
+    }
+
+    if (authStatus === 'authenticated' && !isDemoActive && firebaseUser) {
+      const created = await requestPaymentLinkInFirestore({
+        gameId,
+        requesterId: effectiveUserId,
+        requesterName,
+        requesterAvatar,
+        hostId,
+        gameTitle: targetGame.title
+      });
+      return created;
+    }
+
+    // Demo Mode implementation
+    const existingList = demoPaymentLinkRequests[gameId] || [];
+    const pendingExisting = existingList.find(r => r.requesterId === effectiveUserId && r.status === 'pending');
+    if (pendingExisting) {
+      throw new Error('An outstanding payment link request already exists for this match.');
+    }
+
+    const newReq: PaymentLinkRequest = {
+      id: effectiveUserId,
+      gameId,
+      gameTitle: targetGame.title,
+      requesterId: effectiveUserId,
+      requesterName,
+      requesterAvatar,
+      hostId,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    setDemoPaymentLinkRequests(prev => ({
+      ...prev,
+      [gameId]: [...(prev[gameId] || []).filter(r => r.requesterId !== effectiveUserId), newReq]
+    }));
+
+    // Demo notification to host using existing notification system
+    const hostNotification: AppNotification = {
+      id: `demo_notif_${Date.now()}`,
+      userId: hostId,
+      type: 'payment_link_request',
+      title: 'Payment Link Request',
+      titleAr: 'طلب رابط دفع',
+      message: `${requesterName} requested a payment link for "${targetGame.title}".`,
+      messageAr: `طلب ${requesterName} رابط دفع لمباراة "${targetGame.title}".`,
+      timestamp: 'Just now',
+      read: false,
+      gameId,
+      actorId: effectiveUserId,
+      actorName: requesterName,
+      actorPhotoURL: requesterAvatar,
+      createdAtISO: new Date().toISOString()
+    };
+    setNotifications(prev => [hostNotification, ...prev]);
+
+    return newReq;
+  };
+
+  const handleMarkPaymentLinkRequestHandled = async (gameId: string, requesterId: string): Promise<void> => {
+    const effectiveUserId = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+
+    if (authStatus === 'authenticated' && !isDemoActive && firebaseUser) {
+      await markPaymentLinkRequestHandledInFirestore({
+        gameId,
+        requesterId,
+        hostId: effectiveUserId
+      });
+      return;
+    }
+
+    // Demo Mode
+    setDemoPaymentLinkRequests(prev => {
+      const list = prev[gameId] || [];
+      return {
+        ...prev,
+        [gameId]: list.map(r => r.requesterId === requesterId ? { ...r, status: 'handled', handledAt: new Date().toISOString() } : r)
+      };
+    });
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -2992,7 +3130,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dismissModerationReport,
         moderateGameCancellation,
         refreshModerationQueue,
-        setAthleteOrganizingStatus
+        setAthleteOrganizingStatus,
+        paymentLinkRequests: demoPaymentLinkRequests,
+        requestPaymentLink: handleRequestPaymentLink,
+        markPaymentLinkRequestHandled: handleMarkPaymentLinkRequestHandled,
+        getPaymentLinkRequests
       }}
     >
       {children}

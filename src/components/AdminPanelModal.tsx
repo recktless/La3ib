@@ -573,6 +573,36 @@ export const AdminPanelModal: React.FC = () => {
   // Early return: ONLY after all hooks have been unconditionally called
   if (!adminModalOpen) return null;
 
+  // Strict Authorization Guard: Only verified administrators can access the Admin Panel
+  if (!currentUser.isAdmin || currentUser.isDemoUser) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+        <div 
+          className="relative w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-6 shadow-2xl text-center space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-red-950/80 border border-red-800 text-red-400 flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">
+              {t('Access Restricted', 'غير مصرح بالدخول')}
+            </h3>
+            <p className="text-xs text-neutral-400 mt-1">
+              {t('Administrator privileges are required to access this dashboard.', 'صلاحيات الإشراف مطلوبة للوصول إلى هذه اللوحة.')}
+            </p>
+          </div>
+          <button
+            onClick={() => setAdminModalOpen(false)}
+            className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+          >
+            {t('Close', 'إغلاق')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
       <div 
@@ -590,16 +620,10 @@ export const AdminPanelModal: React.FC = () => {
                 <h2 className="text-base font-extrabold text-white">
                   {t('La3ib Kuwait Operations & Admin Dashboard', 'لوحة تحكم العمليات والإشراف الرياضي - الكويت')}
                 </h2>
-                {isRealAdmin ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Live Firestore Admin
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                    Demo Mode Sandbox
-                  </span>
-                )}
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {t('Verified Administrator', 'مسؤول معتمد')}
+                </span>
               </div>
               <p className="text-[11px] text-neutral-400">
                 {t(

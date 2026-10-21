@@ -24,10 +24,11 @@ import {
   UserPlus,
   Search,
   Check,
-  RotateCcw
+  RotateCcw,
+  Link2
 } from 'lucide-react';
-import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary } from '../lib/firebase';
-import { ChatMessage, GameInvite, ReportReason, resolvePlayerAvatar } from '../types';
+import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary, subscribeToPaymentLinkRequestsForGame } from '../lib/firebase';
+import { ChatMessage, GameInvite, ReportReason, resolvePlayerAvatar, PaymentLinkRequest, getCostSharingMethods, isCostSharingMethodSelected } from '../types';
 
 const GAME_REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'inappropriate_behavior', en: 'Inappropriate or offensive behavior', ar: 'سلوك مسيء أو غير لائق' },
@@ -64,6 +65,12 @@ export const GameDetailModal: React.FC = () => {
     cancelGameInvite,
     isGameInviteLoading,
     getGameInvitesForGame,
+    joinGame,
+    setCreateGamePrefill,
+    setCreateGameModalOpen,
+    requestPaymentLink,
+    markPaymentLinkRequestHandled,
+    getPaymentLinkRequests,
     t 
   } = useApp();
 
@@ -82,6 +89,13 @@ export const GameDetailModal: React.FC = () => {
   const [isLeaving, setIsLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [paymentLinkRequested, setPaymentLinkRequested] = useState(false);
+  const [paymentLinkRequests, setPaymentLinkRequests] = useState<PaymentLinkRequest[]>([]);
+  const [isRequestingLink, setIsRequestingLink] = useState(false);
+  const [linkRequestFeedback, setLinkRequestFeedback] = useState<string | null>(null);
+  const [linkRequestError, setLinkRequestError] = useState<string | null>(null);
+  const [handlingRequesterId, setHandlingRequesterId] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -127,6 +141,11 @@ export const GameDetailModal: React.FC = () => {
       setShowReportForm(false);
     }
   }, [game?.id, userUid]);
+
+  useEffect(() => {
+    setPaymentLinkRequested(false);
+  }, [game?.id]);
+
   const organizerId = game?.organizer?.id || (game as any)?.organizerId || '';
   const isOrganizer = Boolean(game && organizerId && organizerId === userUid);
   const isJoined = Boolean(
@@ -136,6 +155,71 @@ export const GameDetailModal: React.FC = () => {
     )
   );
   const isParticipant = isOrganizer || isJoined;
+
+  // Real-time subscription to payment link requests for this game
+  useEffect(() => {
+    if (!game?.id) {
+      setPaymentLinkRequests([]);
+      return;
+    }
+
+    if (authStatus === 'authenticated' && !isDemoActive) {
+      const unsub = subscribeToPaymentLinkRequestsForGame(game.id, (reqs) => {
+        setPaymentLinkRequests(reqs);
+      });
+      return () => unsub();
+    } else {
+      if (typeof getPaymentLinkRequests === 'function') {
+        setPaymentLinkRequests(getPaymentLinkRequests(game.id));
+      }
+    }
+  }, [game?.id, authStatus, isDemoActive, getPaymentLinkRequests]);
+
+  const userPendingRequest = paymentLinkRequests.find(
+    r => r.requesterId === userUid && r.status === 'pending'
+  );
+  const isLinkRequested = Boolean(userPendingRequest || paymentLinkRequested);
+
+  const handleRequestLink = async () => {
+    if (!game) return;
+    if (isLinkRequested || isRequestingLink) return;
+    setIsRequestingLink(true);
+    setLinkRequestError(null);
+    setLinkRequestFeedback(null);
+    try {
+      if (typeof requestPaymentLink === 'function') {
+        await requestPaymentLink(game.id);
+      }
+      setPaymentLinkRequested(true);
+      setLinkRequestFeedback(
+        t(
+          'Your payment link request has been sent to the host. The host will contact you in the match chat.',
+          'تم إرسال طلب رابط الدفع إلى المنظم بنجاح. سيتواصل معك المنظم عبر شات المباراة.'
+        )
+      );
+    } catch (err: any) {
+      setLinkRequestError(err?.message || 'Failed to request payment link.');
+    } finally {
+      setIsRequestingLink(false);
+    }
+  };
+
+  const handleMarkHandled = async (requesterId: string) => {
+    if (!game) return;
+    setHandlingRequesterId(requesterId);
+    try {
+      if (typeof markPaymentLinkRequestHandled === 'function') {
+        await markPaymentLinkRequestHandled(game.id, requesterId);
+      }
+      setPaymentLinkRequests(prev =>
+        prev.map(r => r.requesterId === requesterId ? { ...r, status: 'handled', handledAt: new Date().toISOString() } : r)
+      );
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to update request.');
+    } finally {
+      setHandlingRequesterId(null);
+    }
+  };
 
   // Real-time onSnapshot subscription for authenticated participants
   useEffect(() => {
@@ -437,6 +521,11 @@ export const GameDetailModal: React.FC = () => {
             >
               <Settings className="w-3.5 h-3.5" />
               <span>{t('Organizer Dashboard', 'لوحة المنظم المالية')}</span>
+              {paymentLinkRequests.filter(r => r.status === 'pending').length > 0 && (
+                <span className="ms-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-neutral-950 font-black text-[10px]">
+                  {paymentLinkRequests.filter(r => r.status === 'pending').length}
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -488,14 +577,119 @@ export const GameDetailModal: React.FC = () => {
                   <span className="text-xs font-bold text-white mt-0.5 block">{game.startTime} - {game.endTime}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Share / Player', 'حصة اللاعب')}</span>
-                  <span className="text-xs font-black text-emerald-400 mt-0.5 block">{game.pricePerPlayerKWD.toFixed(3)} KWD</span>
+                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                  {game.costSharing?.enabled ? (
+                    <span className="text-xs font-black text-emerald-400 mt-0.5 block">
+                      {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)} KWD
+                      <span className="text-[9px] text-neutral-400 ms-1 font-normal">({t('Est.', 'تقديري')})</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold text-neutral-400 mt-0.5 block">
+                      {t('None (Free)', 'غير مفعل (مجاني)')}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Skill & Gender', 'المستوى')}</span>
                   <span className="text-xs font-bold text-white mt-0.5 block">{game.skillLevel} • {game.gender}</span>
                 </div>
               </div>
+
+              {/* Cost Sharing Details: Displayed ONLY when cost sharing is enabled */}
+              {game.costSharing?.enabled && (
+                <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-emerald-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                        {t('Cost Sharing Settings', 'إعدادات تقاسم التكلفة')}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                      {t('Split with Players', 'مفعل مع اللاعبين')}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-neutral-900/80 p-3 rounded-xl border border-neutral-800/80">
+                      <span className="text-[10px] text-neutral-400 uppercase font-bold block mb-1">
+                        {t('Accepted Methods', 'طرق الدفع المتاحة')}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {getCostSharingMethods(game.costSharing).map(m => (
+                          <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-neutral-800 text-white text-xs font-bold border border-neutral-700">
+                            {m === 'cash' && <>💵 {t('Cash', 'نقداً')} <span className="text-[10px] text-neutral-400 font-normal">({t('Pay host outside app', 'الدفع للمنظم خارج التطبيق')})</span></>}
+                            {m === 'wamd' && <>⚡ {t('WAMD', 'ومض')} <span className="text-[10px] text-neutral-400 font-normal">({t('Pay host via WAMD', 'الدفع للمنظم عبر ومض')})</span></>}
+                            {m === 'request_link' && <>🔗 {t('Request Link', 'طلب رابط دفع')} <span className="text-[10px] text-neutral-400 font-normal">({t('Request from host', 'طلب من المنظم')})</span></>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-neutral-900/80 p-3 rounded-xl border border-neutral-800/80">
+                      <span className="text-[10px] text-neutral-400 uppercase font-bold block mb-1">
+                        {t('Estimated Share per Player', 'الحصة التقديرية لكل لاعب')}
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-sm font-black text-emerald-400">
+                          {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400">KWD</span>
+                        <span className="text-[10px] text-neutral-400 ms-1">({t('Estimate', 'تقديري')})</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Request Payment Link Action for eligible participants when Request Link is selected */}
+                  {isCostSharingMethodSelected(game.costSharing, 'request_link') && isJoined && !isOrganizer && (
+                    <div className="pt-2 border-t border-neutral-800/80 space-y-2">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                        <p className="text-[11px] text-neutral-400">
+                          {t(
+                            'You are joined in this match. Request a payment link directly from the host.',
+                            'أنت مشارك في هذه المباراة. يمكنك طلب رابط الدفع مباشرة من منظم المباراة.'
+                          )}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleRequestLink}
+                          disabled={isLinkRequested || isRequestingLink}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:cursor-not-allowed ${
+                            isLinkRequested
+                              ? 'bg-emerald-950 border border-emerald-600 text-emerald-300'
+                              : 'bg-sky-500 hover:bg-sky-400 text-neutral-950 shadow-md shadow-sky-500/20'
+                          }`}
+                        >
+                          {isRequestingLink ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Link2 className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {isLinkRequested 
+                              ? t('Payment Link Requested ✓', 'تم طلب رابط الدفع ✓') 
+                              : t('Request Payment Link', 'طلب رابط دفع')}
+                          </span>
+                        </button>
+                      </div>
+
+                      {linkRequestFeedback && (
+                        <div className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-800 text-xs text-emerald-300 flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>{linkRequestFeedback}</span>
+                        </div>
+                      )}
+
+                      {linkRequestError && (
+                        <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-800 text-xs text-rose-300 flex items-center gap-2">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>{linkRequestError}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Description */}
               {game.description && (
@@ -534,11 +728,11 @@ export const GameDetailModal: React.FC = () => {
                 </span>
               </div>
 
-              {/* Player Roster Section with Payment Status (Section 5 & 6) */}
+              {/* Player Roster Section */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
-                    {t('Player Roster & Payment Status', 'قائمة اللاعبين وحالة الدفع')}
+                    {t('Player Roster', 'قائمة اللاعبين')}
                   </h4>
                   <div className="flex items-center gap-2">
                     {isOrganizer && game.status !== 'Cancelled' && game.status !== 'Completed' && (
@@ -580,18 +774,18 @@ export const GameDetailModal: React.FC = () => {
                               <span className="text-[9px] text-amber-400 bg-amber-950/60 px-1 rounded">Host</span>
                             )}
                           </p>
-                          <p className="text-[10px] text-neutral-500">{player.skill}</p>
+                          <p className="text-[10px] text-neutral-500">{player.skill || t('Athlete', 'رياضي')}</p>
                         </div>
                       </div>
 
-                      {/* Payment Status Pill */}
+                      {/* Participant Status */}
                       <div className="text-right">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>{t('Paid ✓', 'تم الدفع ✓')}</span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>{t('Confirmed', 'مؤكد')}</span>
                         </span>
                         <span className="text-[9px] text-neutral-500 block mt-0.5">
-                          {player.paidAmountKWD.toFixed(3)} KWD ({player.paymentMethod || 'KNET'})
+                          {player.skill || t('Joined', 'مشترك')}
                         </span>
                       </div>
                     </div>
@@ -610,7 +804,9 @@ export const GameDetailModal: React.FC = () => {
                         <span className="text-xs font-semibold">{t('Open Spot', 'مكان شاغر')}</span>
                       </div>
                       <span className="text-[11px] font-semibold text-emerald-400/70">
-                        {game.pricePerPlayerKWD.toFixed(3)} KWD
+                        {game.costSharing?.enabled 
+                          ? `~${(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)} KWD` 
+                          : t('Free Spot', 'مكان مجاني')}
                       </span>
                     </div>
                   ))}
@@ -641,7 +837,18 @@ export const GameDetailModal: React.FC = () => {
                   </div>
                   {game.status !== 'Full' && game.status !== 'Completed' && game.status !== 'Cancelled' && (
                     <button
-                      onClick={() => setSelectedGameForJoin(game)}
+                      onClick={async () => {
+                        if (authStatus !== 'authenticated' && !isDemoActive) {
+                          setAuthModalMode('login');
+                          setAuthModalOpen(true);
+                          return;
+                        }
+                        try {
+                          await joinGame(game.id);
+                        } catch (err: any) {
+                          setActionError(err?.message || 'Failed to join match');
+                        }
+                      }}
                       className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold text-xs transition-colors cursor-pointer shadow-lg shadow-emerald-500/20"
                     >
                       {t('Join Match to Access Chat', 'انضم للمباراة لتفعيل الشات')}
@@ -778,13 +985,13 @@ export const GameDetailModal: React.FC = () => {
           {/* TAB 3: ORGANIZER DASHBOARD */}
           {activeTab === 'organizer' && isOrganizer && (
             <div className="space-y-6">
-              {/* Financial Balance Overview (Prompt Section 6 & 13) */}
+              {/* Cost Sharing & Booking Overview */}
               <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                  {t('Booking Financial Reconciliation', 'التسوية المالية وتغطية تكلفة الملعب')}
+                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                  {t('Court Booking & Cost-Sharing Summary', 'ملخص حجز الملعب وتقاسم التكلفة')}
                 </h4>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div className="bg-neutral-900 p-3 rounded-xl">
                     <span className="text-[10px] text-neutral-400 block">{t('Court Cost', 'تكلفة الملعب')}</span>
                     <span className="text-sm font-black text-white">{game.totalCourtCostKWD.toFixed(3)} KWD</span>
@@ -794,22 +1001,137 @@ export const GameDetailModal: React.FC = () => {
                     <span className="text-sm font-black text-white">{game.participants.length}/{game.maxPlayers}</span>
                   </div>
                   <div className="bg-neutral-900 p-3 rounded-xl">
-                    <span className="text-[10px] text-neutral-400 block">{t('Total Collected', 'المبلغ المحصل')}</span>
-                    <span className="text-sm font-black text-emerald-400">{totalCollectedKWD.toFixed(3)} KWD</span>
-                  </div>
-                  <div className="bg-neutral-900 p-3 rounded-xl">
-                    <span className="text-[10px] text-neutral-400 block">{t('Your Remaining Share', 'حصتك المتبقية')}</span>
-                    <span className="text-sm font-black text-amber-400">{organizerShareKWD.toFixed(3)} KWD</span>
+                    <span className="text-[10px] text-neutral-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                    <span className="text-sm font-black text-emerald-400">
+                      {game.costSharing?.enabled 
+                        ? getCostSharingMethods(game.costSharing).map(m => m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Request Link', '🔗 طلب رابط')).join(', ') 
+                        : t('Disabled (Free)', 'غير مفعل')}
+                    </span>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-xs text-neutral-300">
-                  ✓ {t(
-                    'All collections via KNET & Apple Pay are credited directly to your registered Kuwait bank account.',
-                    'جميع المبالغ المحصلة عبر كي نت وApple Pay تودع مباشرة في حسابك البنكي المسجل في الكويت.'
+                <div className="p-3 rounded-xl bg-neutral-900/60 border border-neutral-800 text-xs text-neutral-300">
+                  {game.costSharing?.enabled ? (
+                    <span>
+                      ℹ️ {t(
+                        'Cost sharing is enabled. Estimated share is based on the court fee. Settlements are made directly outside La3ib; La3ib does not process, verify, or hold payments.',
+                        'تقاسم التكلفة مفعل. الحصة التقديرية مبنية على تكلفة الملعب. تتم التسوية مباشرة خارج تطبيق لعيب؛ لا يقوم التطبيق بمعالجة أو التحقق من المدفوعات.'
+                      )}
+                    </span>
+                  ) : (
+                    <span>
+                      ℹ️ {t(
+                        'Cost sharing is disabled for this game. Participants join for free without payment.',
+                        'تقاسم التكلفة غير مفعل لهذه المباراة. ينضم المشاركون مجاناً.'
+                      )}
+                    </span>
                   )}
                 </div>
               </div>
+
+              {/* Payment Link Requests Management for Host */}
+              {game.costSharing?.enabled && isCostSharingMethodSelected(game.costSharing, 'request_link') && (
+                <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Link2 className="w-4 h-4 text-sky-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                        {t('Payment Link Requests', 'طلبات روابط الدفع')}
+                      </h4>
+                    </div>
+                    {paymentLinkRequests.filter(r => r.status === 'pending').length > 0 ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                        {paymentLinkRequests.filter(r => r.status === 'pending').length} {t('Pending', 'معلق')}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                        {t('All Handled ✓', 'تم التعامل مع الكل ✓')}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-neutral-400">
+                    {t(
+                      'Participants who joined and requested a payment link. Message them in game chat to share your payment link, then mark as handled.',
+                      'اللاعبون المنضمون الذين طلبوا رابط دفع. تواصل معهم عبر شات المباراة لتزويدهم بالرابط ثم حدد الطلب كمنجز.'
+                    )}
+                  </p>
+
+                  {paymentLinkRequests.length === 0 ? (
+                    <div className="p-4 bg-neutral-900/60 rounded-xl text-center text-xs text-neutral-500 border border-neutral-800/60">
+                      {t('No payment link requests received yet.', 'لم يتم استلام أي طلبات روابط دفع بعد.')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {paymentLinkRequests.map((req) => (
+                        <div
+                          key={req.id}
+                          className="p-3 bg-neutral-900 rounded-xl border border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {req.requesterAvatar ? (
+                              <img
+                                src={req.requesterAvatar}
+                                alt={req.requesterName}
+                                className="w-8 h-8 rounded-full object-cover ring-1 ring-neutral-700"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs font-bold text-neutral-300">
+                                {req.requesterName.charAt(0)}
+                              </div>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white">{req.requesterName}</span>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                  req.status === 'pending'
+                                    ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                    : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                }`}>
+                                  {req.status === 'pending' ? t('Pending', 'معلق') : t('Handled ✓', 'تم التعامل ✓')}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-neutral-400">
+                                {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : t('Recent', 'حديث')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab('chat');
+                                setChatInput(`@${req.requesterName} `);
+                              }}
+                              className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <MessageSquare className="w-3 h-3 text-emerald-400" />
+                              <span>{t('Chat with Player', 'مراسلة في الشات')}</span>
+                            </button>
+
+                            {req.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => handleMarkHandled(req.requesterId)}
+                                disabled={handlingRequesterId === req.requesterId}
+                                className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
+                              >
+                                {handlingRequesterId === req.requesterId ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Check className="w-3 h-3" />
+                                )}
+                                <span>{t('Mark Handled', 'تم إرسال الرابط')}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Organizer Controls */}
               <div className="space-y-3">
@@ -817,6 +1139,21 @@ export const GameDetailModal: React.FC = () => {
                   {t('Match Administration', 'إدارة وتعديل المباراة')}
                 </h5>
                 <div className="flex flex-wrap gap-2">
+                  {game.status !== 'Cancelled' && game.status !== 'Completed' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateGamePrefill(game);
+                        setCreateGameModalOpen(true);
+                        setSelectedGameForDetail(null);
+                      }}
+                      className="py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      <span>{t('Edit Match & Cost Sharing', 'تعديل المباراة وتقاسم التكلفة')}</span>
+                    </button>
+                  )}
+
                   {game.status !== 'Cancelled' && game.status !== 'Completed' && (
                     <button
                       type="button"
@@ -847,11 +1184,28 @@ export const GameDetailModal: React.FC = () => {
         {/* Footer Actions */}
         <div className="px-6 py-4 border-t border-neutral-800 bg-neutral-950 flex items-center justify-between gap-4">
           <div>
-            <span className="text-[10px] text-neutral-400 block uppercase">{t('Price Per Player', 'حصة كل لاعب')}</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl font-black text-white">{game.pricePerPlayerKWD.toFixed(3)}</span>
-              <span className="text-xs font-bold text-emerald-400">KWD</span>
-            </div>
+            {game.costSharing?.enabled ? (
+              <div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-neutral-400 block uppercase font-bold">{t('Estimated Share', 'حصة تقديرية')}</span>
+                  <span className="text-[9px] text-neutral-500">({t('Estimate', 'تقديري')})</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black text-white">{(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}</span>
+                  <span className="text-xs font-bold text-emerald-400">KWD</span>
+                  {getCostSharingMethods(game.costSharing).map(m => (
+                    <span key={m} className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
+                      {m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Link', '🔗 رابط')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                <span className="text-sm font-extrabold text-neutral-300">{t('Disabled (Free)', 'غير مفعل (مجاني)')}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -879,6 +1233,25 @@ export const GameDetailModal: React.FC = () => {
               </div>
             ) : isJoined ? (
               <div className="flex items-center gap-2">
+                {game.costSharing?.enabled && isCostSharingMethodSelected(game.costSharing, 'request_link') && (
+                  <button
+                    type="button"
+                    onClick={handleRequestLink}
+                    disabled={isLinkRequested || isRequestingLink}
+                    className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:cursor-not-allowed ${
+                      isLinkRequested
+                        ? 'bg-emerald-950 border border-emerald-600 text-emerald-300'
+                        : 'bg-sky-500 hover:bg-sky-400 text-neutral-950 shadow-md shadow-sky-500/20'
+                    }`}
+                  >
+                    {isRequestingLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                    <span>
+                      {isLinkRequested 
+                        ? t('Link Requested ✓', 'تم طلب الرابط ✓') 
+                        : t('Request Payment Link', 'طلب رابط دفع')}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={handleLeaveGame}
                   disabled={isLeaving}
@@ -903,17 +1276,32 @@ export const GameDetailModal: React.FC = () => {
               </button>
             ) : (
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (authStatus !== 'authenticated' && !isDemoActive) {
                     setAuthModalMode('login');
                     setAuthModalOpen(true);
                     return;
                   }
-                  setSelectedGameForJoin(game);
+                  try {
+                    setIsJoining(true);
+                    await joinGame(game.id);
+                  } catch (err: any) {
+                    setActionError(err?.message || 'Failed to join match');
+                  } finally {
+                    setIsJoining(false);
+                  }
                 }}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-neutral-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer transition-transform transform active:scale-95"
+                disabled={isJoining}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 disabled:opacity-50 text-neutral-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer transition-transform transform active:scale-95"
               >
-                {t('Join Game & Pay Share', 'انضم وسدد حصتك')} ({game.pricePerPlayerKWD.toFixed(3)} KWD)
+                {isJoining ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>{t('Joining...', 'جارِ الانضمام...')}</span>
+                  </span>
+                ) : (
+                  t('Join Game', 'انضم للمباراة')
+                )}
               </button>
             )}
           </div>

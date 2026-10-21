@@ -653,6 +653,37 @@ describe('Phase 4: Service-Level Firestore Integration Tests', () => {
       expect(batchCommit).toHaveBeenCalled();
     });
 
+    it('blockPlayerInFirestore succeeds and records block even if target user doc does not exist in Firestore', async () => {
+      const setCalls: { path: string; data: any }[] = [];
+      const batchCommit = vi.fn().mockResolvedValue(undefined);
+
+      mocks.writeBatch.mockReturnValue({
+        set: (ref: any, data: any) => setCalls.push({ path: String(ref?.path || ref?._path || ''), data }),
+        delete: vi.fn(),
+        update: vi.fn(),
+        commit: batchCommit
+      });
+
+      mocks.getDoc.mockImplementation(async (ref: any) => {
+        const path = String(ref?.path || ref?._path || '');
+        if (path === 'users/user-auth-1') {
+          return createDocSnap('user-auth-1', true, { followingCount: 0, followerCount: 0, friendCount: 0 });
+        }
+        // target user does not exist in Firestore (e.g. demo player or external profile)
+        return createDocSnap('target-demo-user', false);
+      });
+
+      mocks.getDocs.mockResolvedValue({ docs: [] });
+
+      await blockPlayerInFirestore('target-demo-user');
+
+      const blockRecord = setCalls.find(c => c.path === 'users/user-auth-1/blocked/target-demo-user');
+      expect(blockRecord).toBeDefined();
+      expect(blockRecord?.data.blockedUserId).toBe('target-demo-user');
+      expect(blockRecord?.data.userId).toBe('user-auth-1');
+      expect(batchCommit).toHaveBeenCalled();
+    });
+
     it('blockPlayerInFirestore rejects blocking oneself', async () => {
       await expect(blockPlayerInFirestore('user-auth-1')).rejects.toThrow('You cannot block yourself.');
     });

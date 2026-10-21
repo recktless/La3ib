@@ -343,13 +343,19 @@ export const INITIAL_GAMES: Game[] = [
     ],
     totalCourtCostKWD: 15.000,
     pricePerPlayerKWD: 1.500,
+    costSharing: {
+      enabled: true,
+      method: 'cash',
+      estimatedShare: 1.500,
+      currency: 'KWD'
+    },
     skillLevel: 'Intermediate',
     gender: 'Everyone',
     visibility: 'Public',
     status: 'Almost Full',
     description: 'Casual 5v5 game under the stadium lights. Good tempo, friendly vibes. Bibs & water provided. Please arrive 15 minutes before kick-off!',
     createdAt: '2026-09-24T10:00:00Z',
-    cancellationPolicy: 'Free cancellation up to 4 hours before the game. Full refund to KNET account.'
+    cancellationPolicy: 'Free cancellation up to 4 hours before kickoff.'
   },
   {
     id: 'game-padel-doubles',
@@ -402,13 +408,19 @@ export const INITIAL_GAMES: Game[] = [
     ],
     totalCourtCostKWD: 20.000,
     pricePerPlayerKWD: 5.000,
+    costSharing: {
+      enabled: true,
+      method: 'request_link',
+      estimatedShare: 5.000,
+      currency: 'KWD'
+    },
     skillLevel: 'Advanced',
     gender: 'Everyone',
     visibility: 'Public',
     status: 'Almost Full',
     description: 'Looking for our 4th player! Fast-paced rallies, level 3.5+ players. Fresh can of Bullpadel balls included.',
     createdAt: '2026-09-24T14:30:00Z',
-    cancellationPolicy: 'Cancellations 6 hours before kickoff qualify for instant refund.'
+    cancellationPolicy: 'Cancellations 6 hours before kickoff.'
   },
   {
     id: 'game-salmiya-derby',
@@ -450,6 +462,12 @@ export const INITIAL_GAMES: Game[] = [
     ],
     totalCourtCostKWD: 12.000,
     pricePerPlayerKWD: 1.000,
+    costSharing: {
+      enabled: true,
+      method: 'wamd',
+      estimatedShare: 1.000,
+      currency: 'KWD'
+    },
     skillLevel: 'Casual',
     gender: 'Everyone',
     visibility: 'Public',
@@ -508,7 +526,10 @@ export const INITIAL_GAMES: Game[] = [
       }
     ],
     totalCourtCostKWD: 10.000,
-    pricePerPlayerKWD: 1.250,
+    pricePerPlayerKWD: 0,
+    costSharing: {
+      enabled: false
+    },
     skillLevel: 'Intermediate',
     gender: 'Everyone',
     visibility: 'Public',
@@ -579,13 +600,19 @@ export const INITIAL_GAMES: Game[] = [
     ],
     totalCourtCostKWD: 8.000,
     pricePerPlayerKWD: 1.000,
+    costSharing: {
+      enabled: true,
+      method: 'request_link',
+      estimatedShare: 1.000,
+      currency: 'KWD'
+    },
     skillLevel: 'Intermediate',
     gender: 'Everyone',
     visibility: 'Public',
     status: 'Open',
     description: 'Fun 4v4 sunset beach volleyball by Marina Waves. Great weather expected, bring sunglasses or a cap!',
     createdAt: '2026-09-23T15:00:00Z',
-    cancellationPolicy: 'Refundable up to 3 hours prior.'
+    cancellationPolicy: 'Cancellation up to 3 hours prior.'
   }
 ];
 
@@ -593,10 +620,10 @@ export const INITIAL_NOTIFICATIONS: AppNotification[] = [
   {
     id: 'notif-1',
     type: 'joined',
-    title: 'Spot Confirmed & Paid',
-    titleAr: 'تم تأكيد حجز مقعدك والدفع',
-    message: 'Dana Al-Ghanim joined your game "Padel In 2v2 Smash Battle" (5.000 KWD paid via Apple Pay).',
-    messageAr: 'انضمت دانة الغانم إلى مباراتك "بادل إن ٢ ضد ٢" (تم دفع ٥.٠٠٠ د.ك عبر Apple Pay)',
+    title: 'Spot Confirmed',
+    titleAr: 'تم تأكيد حجز مقعدك',
+    message: 'Dana Al-Ghanim joined your game "Padel In 2v2 Smash Battle".',
+    messageAr: 'انضمت دانة الغانم إلى مباراتك "بادل إن ٢ ضد ٢".',
     timestamp: '1 hour ago',
     read: false,
     gameId: 'game-padel-doubles'

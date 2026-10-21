@@ -104,8 +104,8 @@ export const DiscoverTab: React.FC = () => {
           </h1>
           <p className="text-xs sm:text-sm text-neutral-400 mt-1">
             {t(
-              'Browse open casual matches, reserve spots with KNET, and meet fellow athletes.',
-              'تصفح المباريات المفتوحة، احجز مكانك بالدفع السهل والعب مع رياضيين حولك.'
+              'Browse open casual matches, reserve your spot, and meet fellow athletes.',
+              'تصفح المباريات المفتوحة، احجز مكانك بسهولة والعب مع رياضيين حولك.'
             )}
           </p>
         </div>

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Game } from '../types';
+import React, { useState } from 'react';
+import { Game, getCostSharingMethods } from '../types';
 import { useApp } from '../context/AppContext';
 import { 
   Calendar, 
@@ -10,7 +10,8 @@ import {
   ArrowRight,
   ShieldAlert,
   Sparkles,
-  Zap
+  Zap,
+  Loader2
 } from 'lucide-react';
 
 interface GameCardProps {
@@ -21,7 +22,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
   const { 
     currentUser, 
     setSelectedGameForDetail, 
-    setSelectedGameForJoin,
+    joinGame,
     authStatus,
     isDemoActive,
     setAuthModalOpen,
@@ -35,14 +36,24 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
   const spotsLeft = game.maxPlayers - game.participants.length;
   const isFull = spotsLeft <= 0;
 
-  const handleJoinClick = (e: React.MouseEvent) => {
+  const [isJoining, setIsJoining] = useState(false);
+
+  const handleJoinClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (authStatus !== 'authenticated' && !isDemoActive) {
       setAuthModalMode('login');
       setAuthModalOpen(true);
       return;
     }
-    setSelectedGameForJoin(game);
+    try {
+      setIsJoining(true);
+      await joinGame(game.id);
+    } catch (err: any) {
+      console.error('Join game error:', err);
+      setSelectedGameForDetail(game);
+    } finally {
+      setIsJoining(false);
+    }
   };
 
   // Status badge helper
@@ -206,18 +217,39 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
         </div>
       </div>
 
-      {/* Card Footer: Price and CTA */}
+      {/* Card Footer: Cost Sharing & CTA */}
       <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between gap-3">
         <div>
-          <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">
-            {t('Player Share', 'حصة اللاعب')}
-          </span>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-xl font-extrabold text-white">
-              {game.pricePerPlayerKWD.toFixed(3)}
-            </span>
-            <span className="text-xs font-bold text-emerald-400">KWD</span>
-          </div>
+          {game.costSharing?.enabled ? (
+            <div>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">
+                  {t('Estimated Share', 'حصة تقديرية')}
+                </span>
+                <span className="text-[9px] text-neutral-500">({t('Estimate', 'تقديري')})</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-base sm:text-lg font-extrabold text-white">
+                  {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}
+                </span>
+                <span className="text-xs font-bold text-emerald-400">KWD</span>
+                {getCostSharingMethods(game.costSharing).map(m => (
+                  <span key={m} className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
+                    {m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Link', '🔗 رابط')}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">
+                {t('Cost Sharing', 'تقاسم التكلفة')}
+              </span>
+              <span className="text-xs sm:text-sm font-bold text-neutral-300">
+                {t('None (Free)', 'غير مفعل (مجاني)')}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Action Button */}
@@ -253,10 +285,20 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
           ) : (
             <button
               onClick={handleJoinClick}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 transition-all cursor-pointer transform active:scale-95"
+              disabled={isJoining}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-neutral-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 transition-all cursor-pointer transform active:scale-95"
             >
-              <span>{t('Join Game', 'انضم للعبة')}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              {isJoining ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>{t('Joining...', 'جارِ الانضمام...')}</span>
+                </>
+              ) : (
+                <>
+                  <span>{t('Join Game', 'انضم للعبة')}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </>
+              )}
             </button>
           )}
         </div>

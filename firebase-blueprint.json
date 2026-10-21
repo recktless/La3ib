@@ -114,6 +114,7 @@
         "description": { "type": "string", "maxLength": 1000 },
         "status": { "type": "string", "enum": ["Open", "Almost Full", "Full", "Completed", "Cancelled"] },
         "linkedBookingId": { "type": "string", "maxLength": 128 },
+        "costSharing": { "type": "object" },
         "cancellationPolicy": { "type": "string", "maxLength": 300 },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }

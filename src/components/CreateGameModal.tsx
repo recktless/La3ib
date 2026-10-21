@@ -6,6 +6,8 @@ import {
   GenderPreference, 
   GameVisibility, 
   KuwaitArea,
+  CostSharingMethod,
+  getCostSharingMethods,
   getTodayLocalDate 
 } from '../types';
 import { 
@@ -20,7 +22,8 @@ import {
   Calendar,
   Clock,
   MapPin,
-  Lock
+  Lock,
+  DollarSign
 } from 'lucide-react';
 
 const KUWAIT_AREAS: KuwaitArea[] = [
@@ -45,12 +48,14 @@ export const CreateGameModal: React.FC = () => {
     createGamePrefill, 
     setCreateGamePrefill,
     createGame, 
+    updateGame,
     players, 
     currentUser,
     firebaseUser,
     authStatus,
     setAuthModalOpen,
     setAuthModalMode,
+    language,
     t 
   } = useApp();
 
@@ -72,12 +77,17 @@ export const CreateGameModal: React.FC = () => {
   const [gender, setGender] = useState<GenderPreference>('Everyone');
   const [visibility, setVisibility] = useState<GameVisibility>('Public');
   const [description, setDescription] = useState('');
+  const [costSharingEnabled, setCostSharingEnabled] = useState(() => Boolean(createGamePrefill?.costSharing?.enabled));
+  const [selectedCostSharingMethods, setSelectedCostSharingMethods] = useState<CostSharingMethod[]>(() => {
+    const methods = getCostSharingMethods(createGamePrefill?.costSharing);
+    return methods.length > 0 ? methods : ['cash'];
+  });
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
   const [isLinkedLi3ibBooking, setIsLinkedLi3ibBooking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initialize or prefill from Li3ib booking whenever the modal opens
+  // Initialize or prefill from Li3ib booking or existing game whenever the modal opens
   useEffect(() => {
     if (!createGameModalOpen) {
       return;
@@ -97,7 +107,20 @@ export const CreateGameModal: React.FC = () => {
       if (createGamePrefill.totalCourtCostKWD) setTotalCourtCostKWD(createGamePrefill.totalCourtCostKWD);
       if (createGamePrefill.skillLevel) setSkillLevel(createGamePrefill.skillLevel);
       if (createGamePrefill.description) setDescription(createGamePrefill.description);
+      if (createGamePrefill.gender) setGender(createGamePrefill.gender);
+      if (createGamePrefill.visibility) setVisibility(createGamePrefill.visibility);
       setIsLinkedLi3ibBooking(!!createGamePrefill.linkedBookingId);
+
+      // Preserve existing game cost-sharing settings if editing/prefilling, otherwise default OFF
+      if (createGamePrefill.costSharing !== undefined) {
+        setCostSharingEnabled(Boolean(createGamePrefill.costSharing.enabled));
+        const methods = getCostSharingMethods(createGamePrefill.costSharing);
+        setSelectedCostSharingMethods(methods.length > 0 ? methods : ['cash']);
+      } else {
+        // Default OFF
+        setCostSharingEnabled(false);
+        setSelectedCostSharingMethods(['cash']);
+      }
     } else {
       setTitle('Friday Night Football ⚽');
       setSport('Football');
@@ -114,6 +137,9 @@ export const CreateGameModal: React.FC = () => {
       setGender('Everyone');
       setVisibility('Public');
       setDescription('Looking for intermediate players. Nothing too serious, just a good competitive match.');
+      // Default OFF for newly created games
+      setCostSharingEnabled(false);
+      setSelectedCostSharingMethods(['cash']);
       setIsLinkedLi3ibBooking(false);
     }
   }, [createGamePrefill, createGameModalOpen]);
@@ -128,6 +154,12 @@ export const CreateGameModal: React.FC = () => {
   const toggleFriend = (id: string) => {
     setSelectedFriendIds(prev => 
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleCostSharingMethod = (method: CostSharingMethod) => {
+    setSelectedCostSharingMethods(prev => 
+      prev.includes(method) ? prev.filter(item => item !== method) : [...prev, method]
     );
   };
 
@@ -170,36 +202,79 @@ export const CreateGameModal: React.FC = () => {
       return;
     }
 
+    if (costSharingEnabled && selectedCostSharingMethods.length === 0) {
+      setErrorMessage(t(
+        'Please select at least one cost-sharing method (Cash, WAMD, or Request Link).',
+        'يرجى اختيار طريقة واحدة على الأقل لتقاسم التكلفة (نقداً، ومض، أو طلب رابط).'
+      ));
+      return;
+    }
+
     setErrorMessage(null);
     setSubmitting(true);
     console.log('[CreateGame Diagnostic] Starting game submission, submitting set to true');
 
     try {
-      await createGame({
-        title: title.trim(),
-        sport,
-        date,
-        startTime,
-        endTime,
-        courtName: courtName.trim(),
-        area,
-        address: address.trim(),
-        coordinates: { x: 50 + Math.floor(Math.random() * 20 - 10), y: 50 + Math.floor(Math.random() * 20 - 10) },
-        isIndoor,
-        maxPlayers: Number(maxPlayers),
-        totalCourtCostKWD: Number(totalCourtCostKWD),
-        pricePerPlayerKWD: pricePerPlayer,
-        skillLevel,
-        gender,
-        visibility,
-        status: 'Open',
-        description: description.trim() || undefined,
-        linkedBookingId: createGamePrefill?.linkedBookingId,
-        cancellationPolicy: 'Full refund if cancelled at least 4 hours before kickoff.'
-      });
+      if (createGamePrefill?.id) {
+        await updateGame(createGamePrefill.id, {
+          title: title.trim(),
+          sport,
+          date,
+          startTime,
+          endTime,
+          courtName: courtName.trim(),
+          area,
+          address: address.trim(),
+          isIndoor,
+          maxPlayers: Number(maxPlayers),
+          totalCourtCostKWD: Number(totalCourtCostKWD),
+          pricePerPlayerKWD: pricePerPlayer,
+          skillLevel,
+          gender,
+          visibility,
+          description: description.trim() || undefined,
+          costSharing: {
+            enabled: costSharingEnabled,
+            methods: costSharingEnabled ? selectedCostSharingMethods : undefined,
+            method: costSharingEnabled && selectedCostSharingMethods.length > 0 ? selectedCostSharingMethods[0] : undefined,
+            estimatedShare: costSharingEnabled ? pricePerPlayer : undefined
+          }
+        });
+        console.log('[CreateGame Diagnostic] updateGame operation succeeded');
+      } else {
+        await createGame({
+          title: title.trim(),
+          sport,
+          date,
+          startTime,
+          endTime,
+          courtName: courtName.trim(),
+          area,
+          address: address.trim(),
+          coordinates: { x: 50 + Math.floor(Math.random() * 20 - 10), y: 50 + Math.floor(Math.random() * 20 - 10) },
+          isIndoor,
+          maxPlayers: Number(maxPlayers),
+          totalCourtCostKWD: Number(totalCourtCostKWD),
+          pricePerPlayerKWD: pricePerPlayer,
+          skillLevel,
+          gender,
+          visibility,
+          status: 'Open',
+          description: description.trim() || undefined,
+          linkedBookingId: createGamePrefill?.linkedBookingId,
+          cancellationPolicy: 'Free cancellation up to 4 hours before kickoff.',
+          costSharing: {
+            enabled: costSharingEnabled,
+            methods: costSharingEnabled ? selectedCostSharingMethods : undefined,
+            method: costSharingEnabled && selectedCostSharingMethods.length > 0 ? selectedCostSharingMethods[0] : undefined,
+            estimatedShare: costSharingEnabled ? pricePerPlayer : undefined
+          }
+        });
+        console.log('[CreateGame Diagnostic] createGame operation succeeded');
+      }
 
-      console.log('[CreateGame Diagnostic] createGame operation succeeded');
       setCreateGamePrefill(null);
+      setCreateGameModalOpen(false);
     } catch (err: any) {
       console.error('[CreateGame Diagnostic] Failed to create game:', {
         code: err?.code,
@@ -409,16 +484,16 @@ export const CreateGameModal: React.FC = () => {
             </div>
           </div>
 
-          {/* AUTOMATIC SPLIT PRICING CALCULATOR */}
-          <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+          {/* COURT COST & COST SHARING */}
+          <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
             <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4 text-emerald-400" />
               <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
-                {t('Automatic Cost Split Calculator', 'حاسبة تقاسم تكلفة الحجز التلقائية')}
+                {t('Court Cost & Estimates', 'تكلفة الملعب والتقديرات')}
               </h4>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] text-neutral-400 mb-1">
                   {t('Total Court Cost (KWD)', 'إجمالي تكلفة الملعب (د.ك)')}
@@ -446,20 +521,154 @@ export const CreateGameModal: React.FC = () => {
                   className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
-
-              <div className="bg-emerald-950/50 border border-emerald-800/80 rounded-xl p-2.5 flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-emerald-400">
-                  {t('Calculated Share per Player', 'حصة كل لاعب محسوبة')}
-                </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="text-lg font-black text-white">{pricePerPlayer.toFixed(3)}</span>
-                  <span className="text-xs font-bold text-emerald-400">KWD</span>
-                </div>
-              </div>
             </div>
-            <p className="text-[11px] text-neutral-400">
-              Formula: {totalCourtCostKWD.toFixed(3)} KWD ÷ {maxPlayers} players = <strong className="text-emerald-400">{pricePerPlayer.toFixed(3)} KWD</strong> per player upon joining.
-            </p>
+
+            {/* Split the cost with players Toggle */}
+            <div className="pt-3 border-t border-neutral-800/80">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-white">
+                      {t('Split the cost with players', 'تقاسم التكلفة مع اللاعبين')}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400">
+                    {t(
+                      'When OFF, no payment method is required or shown. When ON, select how players pay.',
+                      'عند الإيقاف، لا تطلب طريقة دفع من اللاعبين. عند التفعيل، اختر طريقة الدفع للمنظم.'
+                    )}
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input 
+                    type="checkbox"
+                    checked={costSharingEnabled}
+                    onChange={(e) => setCostSharingEnabled(e.target.checked)}
+                    className="sr-only peer"
+                    aria-label="Split the cost with players"
+                  />
+                  <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                </label>
+              </div>
+
+              {/* When ON: Require host to select one or more methods */}
+              {costSharingEnabled && (
+                <div className="space-y-3 pt-3 mt-3 border-t border-neutral-800/80 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                      {t('Select Cost-Sharing Method (Required)', 'اختر طريقة تقاسم التكلفة (مطلوبة)')}
+                    </label>
+                    <span className="text-[10px] text-neutral-400">
+                      {t('Choose any combination', 'اختر طريقة أو أكثر')}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Cash */}
+                    <div
+                      onClick={() => toggleCostSharingMethod('cash')}
+                      className={`p-3 rounded-xl border text-start transition-all cursor-pointer select-none flex flex-col justify-between ${
+                        selectedCostSharingMethods.includes('cash')
+                          ? 'bg-emerald-950/60 border-emerald-500 text-white ring-1 ring-emerald-500/50'
+                          : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs flex items-center gap-1.5">
+                          💵 {t('Cash', 'نقداً')}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={selectedCostSharingMethods.includes('cash')}
+                          onChange={() => {}}
+                          aria-label="Cash"
+                          className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 text-emerald-500 focus:ring-emerald-500 pointer-events-none"
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-400 leading-snug">
+                        {t('Players pay the host outside La3ib.', 'يدفع اللاعبون للمنظم نقداً خارج تطبيق لعيب.')}
+                      </p>
+                    </div>
+
+                    {/* WAMD */}
+                    <div
+                      onClick={() => toggleCostSharingMethod('wamd')}
+                      className={`p-3 rounded-xl border text-start transition-all cursor-pointer select-none flex flex-col justify-between ${
+                        selectedCostSharingMethods.includes('wamd')
+                          ? 'bg-emerald-950/60 border-emerald-500 text-white ring-1 ring-emerald-500/50'
+                          : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs flex items-center gap-1.5">
+                          ⚡ {t('WAMD', 'ومض')}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={selectedCostSharingMethods.includes('wamd')}
+                          onChange={() => {}}
+                          aria-label="WAMD"
+                          className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 text-emerald-500 focus:ring-emerald-500 pointer-events-none"
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-400 leading-snug">
+                        {t('Players pay the host using WAMD outside La3ib.', 'يدفع اللاعبون للمنظم عبر ومض خارج تطبيق لعيب.')}
+                      </p>
+                    </div>
+
+                    {/* Request Link */}
+                    <div
+                      onClick={() => toggleCostSharingMethod('request_link')}
+                      className={`p-3 rounded-xl border text-start transition-all cursor-pointer select-none flex flex-col justify-between ${
+                        selectedCostSharingMethods.includes('request_link')
+                          ? 'bg-emerald-950/60 border-emerald-500 text-white ring-1 ring-emerald-500/50'
+                          : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs flex items-center gap-1.5">
+                          🔗 {t('Request Link', 'طلب رابط دفع')}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={selectedCostSharingMethods.includes('request_link')}
+                          onChange={() => {}}
+                          aria-label="Request Link"
+                          className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 text-emerald-500 focus:ring-emerald-500 pointer-events-none"
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-400 leading-snug">
+                        {t('Participants can request a payment link from the host.', 'يمكن للمشاركين طلب رابط دفع من المنظم.')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedCostSharingMethods.length === 0 && (
+                    <p className="text-[11px] text-amber-400 font-semibold flex items-center gap-1 mt-1">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      {t('Please select at least one method.', 'يرجى اختيار طريقة دفع واحدة على الأقل.')}
+                    </p>
+                  )}
+
+                  {/* Estimated Share per player clearly labelled as estimate */}
+                  <div className="bg-emerald-950/40 border border-emerald-800/60 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-emerald-400 block">
+                        {t('Estimated Share per Player (Estimate)', 'الحصة التقديرية لكل لاعب (تقديري)')}
+                      </span>
+                      <span className="text-[10px] text-neutral-400">
+                        Formula: {totalCourtCostKWD.toFixed(3)} KWD ÷ {maxPlayers} players
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1 text-end">
+                      <span className="text-lg font-black text-white">{pricePerPlayer.toFixed(3)}</span>
+                      <span className="text-xs font-bold text-emerald-400">KWD</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Gender & Visibility */}
@@ -570,8 +779,12 @@ export const CreateGameModal: React.FC = () => {
           {/* Submit Action */}
           <div className="pt-3 border-t border-neutral-800 flex items-center justify-between gap-4">
             <div>
-              <span className="text-[10px] text-neutral-400 block">{t('Share per player:', 'حصة كل لاعب:')}</span>
-              <span className="text-lg font-black text-emerald-400">{pricePerPlayer.toFixed(3)} KWD</span>
+              <span className="text-[10px] text-neutral-400 block">
+                {costSharingEnabled ? t('Estimated Share (Estimate):', 'الحصة التقديرية (تقديري):') : t('Cost Sharing:', 'تقاسم التكلفة:')}
+              </span>
+              <span className="text-base sm:text-lg font-black text-emerald-400">
+                {costSharingEnabled ? `${pricePerPlayer.toFixed(3)} KWD` : t('Disabled (Free to Join)', 'غير مفعل (مجانياً)')}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -609,6 +822,8 @@ export const CreateGameModal: React.FC = () => {
                       <span className="w-3.5 h-3.5 border-2 border-neutral-900 border-t-transparent rounded-full animate-spin" />
                       <span>{t('Saving to Firestore...', 'جاري الحفظ في Firestore...')}</span>
                     </>
+                  ) : createGamePrefill?.id ? (
+                    t('Save Match Settings', 'حفظ تعديلات المباراة')
                   ) : (
                     t('Post Game & Open Spots', 'نشر المباراة وفتح الحجز')
                   )}

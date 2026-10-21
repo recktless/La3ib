@@ -50,7 +50,8 @@ service cloud.firestore {
 
     // Admin collection
     match /admins/{adminId} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
       allow create, update: if isAdmin()
         && isValidId(adminId)
         && (!('uid' in request.resource.data) || request.resource.data.uid == adminId)
@@ -84,18 +85,15 @@ service cloud.firestore {
       allow create: if isOwner(userId) 
         && (request.resource.data.uid == userId || request.resource.data.id == userId)
         && (!('role' in request.resource.data) || request.resource.data.role != 'admin' || isAdmin())
-        && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false || isAdmin());
+        && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false || isAdmin())
+        && (!('canOrganize' in request.resource.data) || request.resource.data.canOrganize == true || isAdmin());
       allow update: if (
         // Profile owner or Admin
         ((isOwner(userId) || isAdmin())
           && (
             isAdmin() || 
             // Regular user cannot escalate to admin or alter administrative restrictions
-            (
-              (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
-              (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin) &&
-              (!('canOrganize' in request.resource.data) || !('canOrganize' in resource.data) || request.resource.data.canOrganize == resource.data.canOrganize)
-            )
+            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize']))
           )
         )
         ||
@@ -225,7 +223,7 @@ service cloud.firestore {
             request.resource.data.userId == userId
             && request.resource.data.actorId == request.auth.uid
             && request.auth.uid != userId
-            && request.resource.data.type in ['game_join', 'game_leave', 'game_almost_full', 'game_full', 'chat_message']
+            && request.resource.data.type in ['game_join', 'game_leave', 'game_almost_full', 'game_full', 'chat_message', 'payment_link_request', 'payment_link_provided']
             && request.resource.data.read == false
             && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 100
             && request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 500
@@ -236,6 +234,16 @@ service cloud.firestore {
               (
                 'organizer' in get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data &&
                 get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.organizer.id == userId
+              ) ||
+              (
+                request.resource.data.type == 'payment_link_provided'
+                && (
+                  get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.organizerId == request.auth.uid ||
+                  (
+                    'organizer' in get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data &&
+                    get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.organizer.id == request.auth.uid
+                  )
+                )
               ) ||
               (
                 request.resource.data.type == 'chat_message'
@@ -594,6 +602,56 @@ service cloud.firestore {
         );
 
         allow delete: if isAdmin();
+      }
+
+      // Payment Link Requests Subcollection (/games/{gameId}/paymentLinkRequests/{requesterUserId})
+      match /paymentLinkRequests/{requesterUserId} {
+        function getGameData() {
+          return get(/databases/$(database)/documents/games/$(gameId)).data;
+        }
+
+        function isGameOrganizer() {
+          let g = getGameData();
+          return isSignedIn() && (
+            (('organizerId' in g) && g.organizerId == request.auth.uid) ||
+            (('organizer' in g) && ('id' in g.organizer) && g.organizer.id == request.auth.uid)
+          );
+        }
+
+        // Read: Requester, Organizer, or Admin
+        allow read: if isSignedIn() && (
+          request.auth.uid == requesterUserId ||
+          isGameOrganizer() ||
+          isAdmin()
+        );
+
+        // Create: Authorized participant can request a link (requester cannot be the organizer)
+        allow create: if isSignedIn()
+          && isValidId(requesterUserId)
+          && request.auth.uid == requesterUserId
+          && request.resource.data.requesterId == requesterUserId
+          && request.resource.data.gameId == gameId
+          && request.resource.data.status == 'pending'
+          && !isGameOrganizer()
+          && (
+            request.auth.uid in getGameData().participantIds ||
+            ('participants' in getGameData())
+          );
+
+        // Update: Only the host or Admin can mark as handled or provide link
+        allow update: if isSignedIn() && (
+          isGameOrganizer() ||
+          isAdmin()
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'handledAt', 'paymentLinkUrl', 'updatedAt'])
+        && request.resource.data.status in ['pending', 'handled'];
+
+        // Delete: Requester, Host, or Admin
+        allow delete: if isSignedIn() && (
+          request.auth.uid == requesterUserId ||
+          isGameOrganizer() ||
+          isAdmin()
+        );
       }
     }
 

@@ -62,8 +62,8 @@ export const HomeTab: React.FC = () => {
 
           <p className="text-sm sm:text-base text-neutral-300 leading-relaxed">
             {t(
-              'Join pickup matches near you or book top-tier courts via Li3ib and split payments seamlessly with KNET.',
-              'انضم لمباريات قريبة منك، أو احجز ملعبك عبر Li3ib وقسّم التكلفة تلقائياً وبكل أمان عبر كي نت.'
+              'Join pickup matches near you, book top-tier courts via Li3ib, and coordinate cost sharing with fellow players.',
+              'انضم لمباريات قريبة منك، أو احجز ملعبك عبر Li3ib ونسّق تقاسم التكلفة مع اللاعبين بكل سهولة.'
             )}
           </p>
 
@@ -228,9 +228,9 @@ export const HomeTab: React.FC = () => {
             <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-extrabold text-sm">
               3
             </div>
-            <h4 className="font-bold text-sm text-white">{t('Players Pay KNET', 'دفع الحصص عبر كي نت')}</h4>
+            <h4 className="font-bold text-sm text-white">{t('Optional Cost Sharing', 'تقاسم التكلفة الاختياري')}</h4>
             <p className="text-xs text-neutral-400 leading-relaxed">
-              {t('No cash hassles. Players join and pay their share via KNET or Apple Pay.', 'بدون كاش وملاحقة. يدفع كل لاعب حصته لتأكيد مقعده.')}
+              {t('Host chooses Cash, WAMD, or Request Link to easily split pitch costs outside the app.', 'يحدد المنظم الدفع نقداً، عبر ومض، أو طلب رابط لتقاسم تكلفة الملعب خارج التطبيق.')}
             </p>
           </div>
 

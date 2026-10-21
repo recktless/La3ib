@@ -141,15 +141,17 @@ export const Header: React.FC = () => {
             <span className="hidden lg:inline">{t('Safety', 'الأمان')}</span>
           </button>
 
-          {/* Admin Panel Quick Link */}
-          <button
-            onClick={() => setAdminModalOpen(true)}
-            className="hidden lg:flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-amber-400 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors"
-            title="Admin Dashboard"
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 text-amber-400" />
-            <span>{t('Admin', 'لوحة الإشراف')}</span>
-          </button>
+          {/* Admin Panel Quick Link - Authorized Administrators Only */}
+          {currentUser.isAdmin && authStatus === 'authenticated' && !currentUser.isDemoUser && (
+            <button
+              onClick={() => setAdminModalOpen(true)}
+              className="hidden lg:flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-amber-400 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer"
+              title="Admin Dashboard"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5 text-amber-400" />
+              <span>{t('Admin', 'لوحة الإشراف')}</span>
+            </button>
+          )}
 
           {/* Notifications Bell */}
           <button

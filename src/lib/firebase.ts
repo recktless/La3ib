@@ -80,7 +80,13 @@ import type {
   PaymentStatus,
   ModerationLogEntry,
   ModerationAction,
-  ModerationTargetType
+  ModerationTargetType,
+  CostSharingMethod,
+  GameCostSharing,
+  PaymentLinkRequest,
+  PaymentLinkRequestStatus,
+  getCostSharingMethods,
+  isCostSharingMethodSelected
 } from '../types';
 
 // Structured Firestore error interface required by Firebase guidelines
@@ -972,7 +978,10 @@ export async function createOrFetchUserProfile(
     }
   }
 
-  // Determine admin privileges (case-insensitive check for verified project admin and Firestore admins doc)
+  // Determine admin privileges exclusively from trusted server-verified sources:
+  // 1. Authorized administrator email with verified email
+  // 2. Verified record in admins/{uid}
+  // NEVER trust profile fields, client state, or unverified emails.
   const isEmailAdmin = (resolvedEmail.toLowerCase().trim() === 'khalidalami5555@gmail.com') && Boolean(firebaseUser.emailVerified);
   const isUserAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
 
@@ -982,7 +991,7 @@ export async function createOrFetchUserProfile(
     return {
       ...cleanPublicProfile,
       email: resolvedEmail,
-      isAdmin: isUserAdmin || Boolean(cleanPublicProfile.isAdmin)
+      isAdmin: isUserAdmin
     } as UserProfile;
   }
 
@@ -1080,7 +1089,8 @@ export async function updateUserProfileInFirestore(
   const nowISO = new Date().toISOString();
   
   // Separate sensitive account fields (email) from public profile updates
-  const { email, username, ...publicUpdates } = updates;
+  // Strictly sanitize privileged fields: normal user profile updates cannot touch isAdmin, role, or canOrganize
+  const { email, username, isAdmin: _omitAdmin, role: _omitRole, canOrganize: _omitOrganize, ...publicUpdates } = updates as any;
   const payload: Record<string, any> = {
     ...publicUpdates,
     updatedAt: nowISO
@@ -1184,6 +1194,7 @@ export interface CreateGameFirestoreInput {
   description?: string;
   linkedBookingId?: string;
   cancellationPolicy?: string;
+  costSharing?: GameCostSharing;
   coordinates?: { x: number; y: number };
 }
 
@@ -1247,6 +1258,13 @@ export async function createGameInFirestore(
     description: gameInput.description?.trim() || '',
     status: gameInput.status || 'Open',
     linkedBookingId: gameInput.linkedBookingId || null,
+    costSharing: gameInput.costSharing ? {
+      enabled: Boolean(gameInput.costSharing.enabled),
+      ...(gameInput.costSharing.methods ? { methods: gameInput.costSharing.methods } : {}),
+      ...(gameInput.costSharing.method ? { method: gameInput.costSharing.method } : {}),
+      ...(gameInput.costSharing.estimatedShare !== undefined ? { estimatedShare: Number(gameInput.costSharing.estimatedShare) } : {}),
+      currency: gameInput.costSharing.currency || 'KWD'
+    } : { enabled: false },
     cancellationPolicy: gameInput.cancellationPolicy || 'Full refund if cancelled at least 4 hours before kickoff.',
     coordinates: gameInput.coordinates || { x: 50, y: 50 },
     participants: [
@@ -1962,6 +1980,15 @@ export function mapFirestoreDocToGame(id: string, data: Record<string, any>): Ga
     participantIds,
     totalCourtCostKWD: totalCost,
     pricePerPlayerKWD: price,
+    costSharing: data.costSharing ? {
+      enabled: Boolean(data.costSharing.enabled),
+      methods: Array.isArray(data.costSharing.methods)
+        ? data.costSharing.methods
+        : (data.costSharing.method ? [data.costSharing.method] : []),
+      method: data.costSharing.method || (Array.isArray(data.costSharing.methods) && data.costSharing.methods.length > 0 ? data.costSharing.methods[0] : undefined),
+      estimatedShare: data.costSharing.estimatedShare !== undefined ? Number(data.costSharing.estimatedShare) : undefined,
+      currency: data.costSharing.currency || 'KWD'
+    } : { enabled: false },
     skillLevel,
     gender,
     visibility,
@@ -2095,6 +2122,9 @@ export async function updateGameInFirestore(
     }
     if (updates.description !== undefined) {
       payload.description = updates.description;
+    }
+    if (updates.costSharing !== undefined) {
+      payload.costSharing = updates.costSharing;
     }
 
     transaction.update(gameDocRef, payload);
@@ -4160,7 +4190,7 @@ export async function blockPlayerInFirestore(blockedUserId: string): Promise<voi
     throw new Error('You cannot block yourself.');
   }
 
-  // 1. Verify target user exists
+  // 1. Fetch current user and check if target user doc exists in Firestore
   const targetUserRef = doc(dbInstance, 'users', blockedUserId);
   const currentUserRef = doc(dbInstance, 'users', currentUserId);
   const [currentUserSnap, targetSnap] = await Promise.all([
@@ -4168,12 +4198,9 @@ export async function blockPlayerInFirestore(blockedUserId: string): Promise<voi
     getDoc(targetUserRef)
   ]);
 
-  if (!targetSnap.exists()) {
-    throw new Error('Player to block does not exist.');
-  }
-
+  const targetUserExists = targetSnap.exists();
   const currentUserData = currentUserSnap.exists() ? currentUserSnap.data() : {};
-  const targetUserData = targetSnap.data() || {};
+  const targetUserData = targetUserExists ? (targetSnap.data() || {}) : {};
 
   const blockDocRef = doc(dbInstance, 'users', currentUserId, 'blocked', blockedUserId);
   const nowISO = new Date().toISOString();
@@ -4181,7 +4208,7 @@ export async function blockPlayerInFirestore(blockedUserId: string): Promise<voi
   try {
     const batch = writeBatch(dbInstance);
 
-    // 1. Write the block record with blockedUserId as document ID
+    // 1. Write the block record with blockedUserId as document ID under the current user's blocked subcollection
     batch.set(blockDocRef, {
       id: blockedUserId,
       userId: currentUserId,
@@ -4200,46 +4227,67 @@ export async function blockPlayerInFirestore(blockedUserId: string): Promise<voi
     // 2. Remove follow relationships if they exist:
     // A -> B
     const userFollowingRef = doc(dbInstance, 'users', currentUserId, 'following', blockedUserId);
-    const targetFollowerRef = doc(dbInstance, 'users', blockedUserId, 'followers', currentUserId);
     const snapFollow1 = await getDoc(userFollowingRef);
     if (snapFollow1.exists()) {
       batch.delete(userFollowingRef);
-      batch.delete(targetFollowerRef);
       myFollowingCount = Math.max(0, myFollowingCount - 1);
-      otherFollowerCount = Math.max(0, otherFollowerCount - 1);
+      if (targetUserExists) {
+        const targetFollowerRef = doc(dbInstance, 'users', blockedUserId, 'followers', currentUserId);
+        batch.delete(targetFollowerRef);
+        otherFollowerCount = Math.max(0, otherFollowerCount - 1);
+      }
     }
 
     // B -> A
-    const targetFollowingRef = doc(dbInstance, 'users', blockedUserId, 'following', currentUserId);
-    const userFollowerRef = doc(dbInstance, 'users', currentUserId, 'followers', blockedUserId);
-    const snapFollow2 = await getDoc(targetFollowingRef);
-    if (snapFollow2.exists()) {
-      batch.delete(targetFollowingRef);
-      batch.delete(userFollowerRef);
-      otherFollowingCount = Math.max(0, otherFollowingCount - 1);
-      myFollowerCount = Math.max(0, myFollowerCount - 1);
+    if (targetUserExists) {
+      const targetFollowingRef = doc(dbInstance, 'users', blockedUserId, 'following', currentUserId);
+      const userFollowerRef = doc(dbInstance, 'users', currentUserId, 'followers', blockedUserId);
+      const snapFollow2 = await getDoc(targetFollowingRef);
+      if (snapFollow2.exists()) {
+        batch.delete(targetFollowingRef);
+        batch.delete(userFollowerRef);
+        otherFollowingCount = Math.max(0, otherFollowingCount - 1);
+        myFollowerCount = Math.max(0, myFollowerCount - 1);
+      }
+    } else {
+      const userFollowerRef = doc(dbInstance, 'users', currentUserId, 'followers', blockedUserId);
+      const snapFollow2 = await getDoc(userFollowerRef);
+      if (snapFollow2.exists()) {
+        batch.delete(userFollowerRef);
+        myFollowerCount = Math.max(0, myFollowerCount - 1);
+      }
     }
 
     // 3. Remove mutual friend relationships if they exist:
     const myFriendRef = doc(dbInstance, 'users', currentUserId, 'friends', blockedUserId);
-    const targetFriendRef = doc(dbInstance, 'users', blockedUserId, 'friends', currentUserId);
     const snapFriend = await getDoc(myFriendRef);
     if (snapFriend.exists()) {
       batch.delete(myFriendRef);
-      batch.delete(targetFriendRef);
       myFriendCount = Math.max(0, myFriendCount - 1);
-      otherFriendCount = Math.max(0, otherFriendCount - 1);
+      if (targetUserExists) {
+        const targetFriendRef = doc(dbInstance, 'users', blockedUserId, 'friends', currentUserId);
+        batch.delete(targetFriendRef);
+        otherFriendCount = Math.max(0, otherFriendCount - 1);
+      }
     }
 
     // 4. Remove pending friend requests between the two users:
-    const req1 = doc(dbInstance, 'users', blockedUserId, 'friendRequests', currentUserId);
-    const req2 = doc(dbInstance, 'users', currentUserId, 'friendRequests', blockedUserId);
-    const [snapReq1, snapReq2] = await Promise.all([getDoc(req1), getDoc(req2)]);
-    if (snapReq1.exists()) {
-      batch.delete(req1);
-    }
-    if (snapReq2.exists()) {
-      batch.delete(req2);
+    if (targetUserExists) {
+      const req1 = doc(dbInstance, 'users', blockedUserId, 'friendRequests', currentUserId);
+      const req2 = doc(dbInstance, 'users', currentUserId, 'friendRequests', blockedUserId);
+      const [snapReq1, snapReq2] = await Promise.all([getDoc(req1), getDoc(req2)]);
+      if (snapReq1.exists()) {
+        batch.delete(req1);
+      }
+      if (snapReq2.exists()) {
+        batch.delete(req2);
+      }
+    } else {
+      const req2 = doc(dbInstance, 'users', currentUserId, 'friendRequests', blockedUserId);
+      const snapReq2 = await getDoc(req2);
+      if (snapReq2.exists()) {
+        batch.delete(req2);
+      }
     }
 
     // 5. Invalidate / cancel pending game invites between the two users
@@ -4297,23 +4345,25 @@ export async function blockPlayerInFirestore(blockedUserId: string): Promise<voi
       }, { merge: true });
     }
 
-    const otherCountsChanged = otherFollowingCount !== (targetUserData.followingCount ?? 0) ||
-      otherFollowerCount !== (targetUserData.followerCount ?? 0) ||
-      otherFriendCount !== (targetUserData.friendCount ?? 0);
+    if (targetUserExists) {
+      const otherCountsChanged = otherFollowingCount !== (targetUserData.followingCount ?? 0) ||
+        otherFollowerCount !== (targetUserData.followerCount ?? 0) ||
+        otherFriendCount !== (targetUserData.friendCount ?? 0);
 
-    if (otherCountsChanged) {
-      const targetUpdate: Record<string, any> = { updatedAt: nowISO };
-      if (otherFollowingCount !== (targetUserData.followingCount ?? 0)) {
-        targetUpdate.followingCount = otherFollowingCount;
-      }
-      if (otherFollowerCount !== (targetUserData.followerCount ?? 0)) {
-        targetUpdate.followerCount = otherFollowerCount;
-      }
-      if (otherFriendCount !== (targetUserData.friendCount ?? 0)) {
-        targetUpdate.friendCount = otherFriendCount;
-      }
+      if (otherCountsChanged) {
+        const targetUpdate: Record<string, any> = { updatedAt: nowISO };
+        if (otherFollowingCount !== (targetUserData.followingCount ?? 0)) {
+          targetUpdate.followingCount = otherFollowingCount;
+        }
+        if (otherFollowerCount !== (targetUserData.followerCount ?? 0)) {
+          targetUpdate.followerCount = otherFollowerCount;
+        }
+        if (otherFriendCount !== (targetUserData.friendCount ?? 0)) {
+          targetUpdate.friendCount = otherFriendCount;
+        }
 
-      batch.set(targetUserRef, targetUpdate, { merge: true });
+        batch.set(targetUserRef, targetUpdate, { merge: true });
+      }
     }
 
     await batch.commit();
@@ -5435,6 +5485,199 @@ export async function simulateGameRefund(gameId: string, userId: string): Promis
     handleFirestoreError(err, OperationType.UPDATE, `games/${gameId}/payments/${userId}`);
     throw err;
   }
+}
+
+/**
+ * Submits a Payment Link Request from an eligible joined participant to the match host.
+ * Enforces:
+ * 1. Participant is authenticated and cannot be the host.
+ * 2. Game exists with costSharing enabled and 'request_link' among selected methods.
+ * 3. Requester is an active joined participant of the game.
+ * 4. Atomic runTransaction prevents duplicate outstanding ('pending') requests.
+ * 5. Dispatches a real-time notification to the host with participant and game details.
+ */
+export async function requestPaymentLinkInFirestore(params: {
+  gameId: string;
+  requesterId: string;
+  requesterName: string;
+  requesterAvatar?: string;
+  hostId: string;
+  gameTitle?: string;
+}): Promise<PaymentLinkRequest> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  if (!params.gameId || !params.requesterId || !params.hostId) {
+    throw new Error('Game ID, requester ID, and host ID are required.');
+  }
+
+  // Requester cannot be the host
+  if (params.requesterId === params.hostId) {
+    throw new Error('Match host cannot request a payment link from themselves.');
+  }
+
+  const gameDocRef = doc(dbInstance, 'games', params.gameId);
+  const reqDocRef = doc(dbInstance, 'games', params.gameId, 'paymentLinkRequests', params.requesterId);
+  const nowISO = new Date().toISOString();
+
+  let resolvedTitle = params.gameTitle || 'Match';
+
+  const newRequest: PaymentLinkRequest = await runTransaction(dbInstance, async (transaction) => {
+    const gameSnap = await transaction.get(gameDocRef);
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found.');
+    }
+    const gameData = gameSnap.data();
+    resolvedTitle = gameData.title || resolvedTitle;
+
+    // Verify host match
+    const organizerId = gameData.organizerId || (gameData.organizer && gameData.organizer.id);
+    if (organizerId !== params.hostId) {
+      throw new Error('Host ID does not match the game organizer.');
+    }
+
+    // Verify cost sharing is enabled and request_link is among selected methods
+    const costSharing = gameData.costSharing as GameCostSharing | undefined;
+    if (!costSharing || !costSharing.enabled || !isCostSharingMethodSelected(costSharing, 'request_link')) {
+      throw new Error('Payment link requests are not enabled for this match.');
+    }
+
+    // Verify requester is a joined participant
+    const participantIds = Array.isArray(gameData.participantIds) ? gameData.participantIds : [];
+    const participants = Array.isArray(gameData.participants) ? gameData.participants : [];
+    const isParticipant = participantIds.includes(params.requesterId) || 
+      participants.some((p: any) => p.userId === params.requesterId || p.id === params.requesterId);
+    
+    if (!isParticipant) {
+      throw new Error('Only joined participants can request a payment link.');
+    }
+
+    // Atomic duplicate check: prevent duplicate outstanding requests
+    const reqSnap = await transaction.get(reqDocRef);
+    if (reqSnap.exists()) {
+      const existing = reqSnap.data() as PaymentLinkRequest;
+      if (existing.status === 'pending') {
+        throw new Error('An outstanding payment link request already exists for this match.');
+      }
+    }
+
+    const payload: PaymentLinkRequest = {
+      id: params.requesterId,
+      gameId: params.gameId,
+      gameTitle: resolvedTitle,
+      requesterId: params.requesterId,
+      requesterName: params.requesterName,
+      requesterAvatar: params.requesterAvatar || '',
+      hostId: params.hostId,
+      status: 'pending',
+      createdAt: nowISO
+    };
+
+    transaction.set(reqDocRef, payload);
+    return payload;
+  });
+
+  // Notify host with participant and game details using existing notification system
+  try {
+    await createNotification({
+      id: `notif_paylink_${params.gameId}_${params.requesterId}`,
+      userId: params.hostId,
+      type: 'payment_link_request',
+      title: 'Payment Link Request',
+      body: `${params.requesterName} requested a payment link for "${resolvedTitle}".`,
+      gameId: params.gameId,
+      actorId: params.requesterId,
+      actorName: params.requesterName,
+      actorPhotoURL: params.requesterAvatar
+    });
+  } catch (notifErr) {
+    console.warn('[Firestore] Notice during payment link request notification:', notifErr);
+  }
+
+  return newRequest;
+}
+
+/**
+ * Marks an outstanding Payment Link Request as handled by the host.
+ * Enforces:
+ * 1. Caller is the host of the game.
+ * 2. Request exists.
+ * 3. Status transitions from 'pending' to 'handled'.
+ */
+export async function markPaymentLinkRequestHandledInFirestore(params: {
+  gameId: string;
+  requesterId: string;
+  hostId: string;
+}): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const reqDocRef = doc(dbInstance, 'games', params.gameId, 'paymentLinkRequests', params.requesterId);
+  const nowISO = new Date().toISOString();
+
+  await runTransaction(dbInstance, async (transaction) => {
+    const gameDocRef = doc(dbInstance, 'games', params.gameId);
+    const gameSnap = await transaction.get(gameDocRef);
+    if (!gameSnap.exists()) {
+      throw new Error('Game not found.');
+    }
+    const gameData = gameSnap.data();
+    const organizerId = gameData.organizerId || (gameData.organizer && gameData.organizer.id);
+    if (organizerId !== params.hostId) {
+      throw new Error('Only the match host can mark payment link requests as handled.');
+    }
+
+    const reqSnap = await transaction.get(reqDocRef);
+    if (!reqSnap.exists()) {
+      throw new Error('Payment link request not found.');
+    }
+
+    transaction.update(reqDocRef, {
+      status: 'handled',
+      handledAt: nowISO,
+      updatedAt: nowISO
+    });
+  });
+}
+
+/**
+ * Real-time subscription to payment link requests for a game.
+ */
+export function subscribeToPaymentLinkRequestsForGame(
+  gameId: string,
+  onRequests: (requests: PaymentLinkRequest[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  if (!dbInstance) {
+    onRequests([]);
+    return () => {};
+  }
+
+  const colRef = collection(dbInstance, 'games', gameId, 'paymentLinkRequests');
+  const unsubscribe = onSnapshot(
+    colRef,
+    (snapshot) => {
+      const requests: PaymentLinkRequest[] = snapshot.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          gameId: data.gameId || gameId,
+          gameTitle: data.gameTitle || '',
+          requesterId: data.requesterId || d.id,
+          requesterName: data.requesterName || 'Player',
+          requesterAvatar: data.requesterAvatar || '',
+          hostId: data.hostId || '',
+          status: (data.status as PaymentLinkRequestStatus) || 'pending',
+          createdAt: data.createdAt || '',
+          handledAt: data.handledAt,
+          paymentLinkUrl: data.paymentLinkUrl
+        };
+      });
+      onRequests(requests);
+    },
+    (err) => {
+      console.warn(`[Firestore] Payment link requests listener warning for ${gameId}:`, err);
+      if (onError) onError(err);
+    }
+  );
+
+  return unsubscribe;
 }
 
 

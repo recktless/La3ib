@@ -142,8 +142,8 @@ export const Sidebar: React.FC = () => {
           </div>
           <p className="text-xs text-neutral-300 font-medium leading-relaxed">
             {t(
-              'Book any court through Li3ib, then post your game here to split costs automatically with KNET.',
-              'احجز أي ملعب عبر Li3ib ثم انشر المباراة هنا لتقاسم التكلفة تلقائياً عبر كي نت.'
+              'Book any court through Li3ib, then post your game here with optional cost sharing with players.',
+              'احجز أي ملعب عبر Li3ib ثم انشر المباراة هنا مع خيار تقاسم التكلفة مع اللاعبين.'
             )}
           </p>
           <button

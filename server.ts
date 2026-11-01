@@ -17,14 +17,202 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// Helper: Decode base64url string to Uint8Array using Web standard APIs
+function base64UrlDecode(str: string): Uint8Array {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  const binaryStr = atob(base64);
+  const len = binaryStr.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function parseJwtHeader(token: string): { alg?: string; kid?: string; typ?: string } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const bytes = base64UrlDecode(parts[0]);
+    const jsonStr = new TextDecoder().decode(bytes);
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
+function parseJwtPayload(token: string): {
+  aud?: string;
+  iss?: string;
+  sub?: string;
+  exp?: number;
+  auth_time?: number;
+  email?: string;
+  [key: string]: any;
+} | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const bytes = base64UrlDecode(parts[1]);
+    const jsonStr = new TextDecoder().decode(bytes);
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
+let cachedJwks: { keys: any[]; expiresAt: number } | null = null;
+
+async function getGoogleJwks(): Promise<any[]> {
+  const now = Date.now();
+  if (cachedJwks && cachedJwks.expiresAt > now && cachedJwks.keys.length > 0) {
+    return cachedJwks.keys;
+  }
+
+  try {
+    const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
+    if (!res.ok) throw new Error(`Google JWK fetch failed: ${res.statusText}`);
+    const data = await res.json() as { keys?: any[] };
+    if (!data.keys || !Array.isArray(data.keys)) throw new Error('Malformed Google JWK response');
+
+    let maxAgeSeconds = 3600;
+    const cacheControl = res.headers.get('cache-control');
+    if (cacheControl) {
+      const match = cacheControl.match(/max-age=(\d+)/i);
+      if (match && match[1]) maxAgeSeconds = parseInt(match[1], 10);
+    }
+
+    cachedJwks = { keys: data.keys, expiresAt: now + (maxAgeSeconds * 1000) };
+    return cachedJwks.keys;
+  } catch (err) {
+    console.warn('[server] Warning fetching Google JWKs:', err);
+    return cachedJwks?.keys || [];
+  }
+}
+
+async function verifyFirebaseToken(
+  token: string,
+  projectId = 'influential-odyssey-hggh3',
+  firebaseApiKey = 'AIzaSyAUd_jJLMDLetznk0prLaeE-_XvfG-0wOk'
+): Promise<{ valid: boolean; uid?: string; error?: string }> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return { valid: false, error: 'Malformed token structure' };
+
+    const header = parseJwtHeader(token);
+    const payload = parseJwtPayload(token);
+    if (!header || !payload) return { valid: false, error: 'Could not decode authentication token' };
+    if (header.alg !== 'RS256') return { valid: false, error: `Unsupported algorithm: ${header.alg}` };
+    if (!header.kid) return { valid: false, error: 'Missing key ID in token header' };
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp !== 'number' || payload.exp < nowSeconds - 60) {
+      return { valid: false, error: 'Authentication session expired. Please sign in again.' };
+    }
+    if (typeof payload.auth_time !== 'number' || payload.auth_time > nowSeconds + 60) {
+      return { valid: false, error: 'Token issued in the future (invalid auth_time)' };
+    }
+    if (payload.aud !== projectId) {
+      return { valid: false, error: `Invalid token audience (${payload.aud} != ${projectId})` };
+    }
+    const expectedIssuer = `https://securetoken.google.com/${projectId}`;
+    if (payload.iss !== expectedIssuer) {
+      return { valid: false, error: `Invalid token issuer (${payload.iss} != ${expectedIssuer})` };
+    }
+    if (!payload.sub || typeof payload.sub !== 'string') {
+      return { valid: false, error: 'Invalid user ID in authentication token' };
+    }
+
+    const jwks = await getGoogleJwks();
+    const matchingKey = jwks.find((k: any) => k.kid === header.kid);
+    if (matchingKey) {
+      const cryptoKey = await crypto.subtle.importKey(
+        'jwk',
+        { kty: matchingKey.kty, alg: matchingKey.alg, n: matchingKey.n, e: matchingKey.e, ext: true },
+        { name: 'RSASSA-PKCS1-v1_5', hash: { name: 'SHA-256' } },
+        false,
+        ['verify']
+      );
+      const signedData = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+      const signatureBytes = base64UrlDecode(parts[2]);
+      const isValid = await crypto.subtle.verify(
+        'RSASSA-PKCS1-v1_5',
+        cryptoKey,
+        signatureBytes as unknown as BufferSource,
+        signedData as unknown as BufferSource
+      );
+      if (isValid) return { valid: true, uid: payload.sub };
+    }
+
+    if (firebaseApiKey) {
+      try {
+        const verifyRes = await fetch(
+          `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken: token })
+          }
+        );
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json() as any;
+          if (verifyData.users && verifyData.users.length > 0) {
+            return { valid: true, uid: verifyData.users[0].localId };
+          }
+        }
+      } catch (fbErr) {
+        console.warn('[server] Fallback token check error:', fbErr);
+      }
+    }
+
+    return { valid: false, error: 'Token cryptographic signature verification failed' };
+  } catch (err: any) {
+    return { valid: false, error: err?.message || 'Token verification error' };
+  }
+}
+
 // Universal Booking Confirmation Document Extraction API
 app.post('/api/extract-booking', async (req, res) => {
   try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Missing or invalid Authorization header.'
+      });
+    }
+
+    const token = authHeader.slice(7).trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Bearer token is empty.'
+      });
+    }
+
+    const authCheck = await verifyFirebaseToken(token);
+    if (!authCheck.valid) {
+      return res.status(401).json({
+        success: false,
+        error: authCheck.error || 'Invalid or expired authentication token. Please sign in again.'
+      });
+    }
+
     const { fileBase64, mimeType, fileName } = req.body;
     if (!fileBase64 || !mimeType) {
       return res.status(400).json({ 
         success: false, 
         error: 'Missing fileBase64 or mimeType in request payload' 
+      });
+    }
+
+    if (typeof fileBase64 === 'string' && fileBase64.length > 20 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: 'Document exceeds 10MB limit. Please upload a smaller file.'
       });
     }
 
@@ -48,11 +236,18 @@ app.post('/api/extract-booking', async (req, res) => {
     if (!apiKey) {
       return res.status(503).json({
         success: false,
-        error: 'Gemini API key is not configured on the server environment.'
+        error: 'Gemini API key is not configured on the server environment. Please set GEMINI_API_KEY.'
       });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
 
     const systemPrompt = `You are a sports venue booking verification and extraction engine for Kuwait.
 Your task is to analyze this court/venue booking confirmation document (which may be in English or Arabic, e.g., from Li3ib, Padel In, Kuwait Youth Centers, or any booking app/email/receipt).

@@ -279,6 +279,13 @@ export const CreateGameModal: React.FC = () => {
       return;
     }
 
+    if (!firebaseUser) {
+      setExtractionError(t('Please sign in to your account to upload and verify booking documents.', 'يرجى تسجيل الدخول إلى حسابك لرفع مستندات الحجز والتحقق منها.'));
+      setAuthModalMode('login');
+      setAuthModalOpen(true);
+      return;
+    }
+
     setUploadedFile(file);
     const objectUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
     setPreviewUrl(objectUrl);
@@ -286,27 +293,33 @@ export const CreateGameModal: React.FC = () => {
     setIsExtracting(true);
 
     try {
+      const idToken = await firebaseUser.getIdToken();
       const base64 = await fileToBase64(file);
       const res = await fetch('/api/extract-booking', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify({ fileBase64: base64, mimeType: file.type, fileName: file.name })
       });
+      
       if (!res.ok) {
-        throw new Error(`Extraction failed: ${res.statusText}`);
+        const errorResult = await res.json().catch(() => null);
+        throw new Error(errorResult?.error || `Extraction failed: ${res.statusText}`);
       }
       const result = await res.json();
       const extracted = result.extraction || result.data;
-      if (result.success && extracted) {
+      if (result?.success && extracted) {
         setExtractedData(extracted);
         setReviewFormData({ ...extracted });
         setShowReviewDialog(true);
       } else {
-        setExtractionError(result.error || t('Could not extract details automatically. You can enter them manually.', 'تعذر استخراج التفاصيل تلقائياً. يمكنك إدخالها يدوياً.'));
+        setExtractionError(result?.error || t('Could not extract details automatically. You can enter them manually.', 'تعذر استخراج التفاصيل تلقائياً. يمكنك إدخالها يدوياً.'));
       }
     } catch (err: any) {
       console.error('Booking extraction error:', err);
-      setExtractionError(t('Automatic extraction was unable to read this document. You can still create your game manually.', 'تعذر قراءة المستند تلقائياً. لا يزال بإمكانك إنشاء المباراة يدوياً.'));
+      setExtractionError(err?.message || t('Automatic extraction was unable to read this document. You can still create your game manually.', 'تعذر قراءة المستند تلقائياً. لا يزال بإمكانك إنشاء المباراة يدوياً.'));
     } finally {
       setIsExtracting(false);
       if (fileInputRef.current) {

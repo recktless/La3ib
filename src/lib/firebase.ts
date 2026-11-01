@@ -49,6 +49,7 @@ import {
   ref, 
   uploadBytes, 
   getDownloadURL,
+  deleteObject,
   type FirebaseStorage 
 } from 'firebase/storage';
 import rawAppletConfig from '../../firebase-applet-config.json';
@@ -84,10 +85,15 @@ import type {
   CostSharingMethod,
   GameCostSharing,
   PaymentLinkRequest,
-  PaymentLinkRequestStatus,
-  getCostSharingMethods,
-  isCostSharingMethodSelected
+  PaymentLinkRequestStatus
 } from '../types';
+import {
+  getCostSharingMethods,
+  isCostSharingMethodSelected,
+  isValidKuwaitMobile,
+  formatKuwaitMobile
+} from '../types';
+import { resolveGameLocation } from './location';
 
 // Structured Firestore error interface required by Firebase guidelines
 export enum OperationType {
@@ -239,7 +245,7 @@ export async function testFirebaseConnection(): Promise<FirebaseTestReport> {
   };
 
   if (!isFirebaseConfigured || !dbInstance) {
-    report.message = 'Firebase configuration is pending. The application is running in local demonstration mode.';
+    report.message = 'Cloud services configuration is pending. The application is running in local demonstration mode.';
     return report;
   }
 
@@ -273,22 +279,22 @@ export async function testFirebaseConnection(): Promise<FirebaseTestReport> {
       report.firestoreReadSuccess = true;
       report.firestoreConnected = true;
       report.connected = true;
-      report.message = `Verified! Round-trip read/write test succeeded on Firestore database [${report.databaseId}] in project [${report.projectId}].`;
+      report.message = 'Verified! Round-trip read/write test succeeded on cloud database.';
     } else {
       report.firestoreConnected = true;
       report.connected = true;
-      report.message = 'Connected to Firestore server, but test document returned empty.';
+      report.message = 'Connected to cloud server, but test record returned empty.';
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (msg.includes('the client is offline')) {
-      report.message = 'Firebase client is offline. Please check network connection.';
+      report.message = 'Client is offline. Please check your network connection.';
     } else if (msg.includes('permission-denied') || msg.includes('Missing or insufficient permissions')) {
       report.firestoreConnected = true;
       report.connected = true;
-      report.message = 'Connected to Firestore server, security rules are actively enforced.';
+      report.message = 'Connected to cloud server, security rules are actively enforced.';
     } else {
-      report.message = `Firestore test error: ${msg}`;
+      report.message = 'Cloud database connection test encountered an issue.';
     }
   }
 
@@ -329,8 +335,13 @@ export function mapFirebaseAuthError(err: unknown, lang: 'en' | 'ar' = 'en'): st
       return isAr ? 'الرابط غير صالح أو تم استخدامه بالفعل.' : 'The reset link is invalid or has already been used.';
     case 'auth/account-exists-with-different-credential':
       return isAr ? 'يوجد حساب مسجل بالفعل ببيانات اعتماد مختلفة لهذا البريد.' : 'An account already exists with the same email using a different sign-in method.';
-    default:
-      return (err as any)?.message || (isAr ? 'حدث خطأ في المصادقة. يرجى المحاولة مرة أخرى.' : 'Authentication error. Please try again.');
+    default: {
+      const msg = (err as any)?.message || '';
+      if (msg && !msg.toLowerCase().includes('firebase') && !msg.toLowerCase().includes('auth/')) {
+        return msg;
+      }
+      return isAr ? 'حدث خطأ في المصادقة. يرجى المحاولة مرة أخرى.' : 'An authentication error occurred. Please try again.';
+    }
   }
 }
 
@@ -1128,31 +1139,145 @@ export async function updateUserProfileInFirestore(
   }
 }
 
-// Storage Service Functions
-export async function uploadUserProfilePicture(file: File, userId: string): Promise<string> {
-  if (!storageInstance) throw new Error('Firebase Storage is not configured.');
+// Storage Service Functions & Client Image Compression Helper
+export function compressImageClient(file: File, maxDim = 400, quality = 0.82): Promise<{ blob: Blob; dataUrl: string }> {
+  return new Promise((resolve, reject) => {
+    // If not a valid image format, reject early
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(file.name);
+    if (!isImage) {
+      reject(new Error('Invalid file type. Only JPEG, PNG, WEBP, and GIF images are supported.'));
+      return;
+    }
 
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      resolve({ blob: file, dataUrl: '' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read image file.'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Unable to process image data.'));
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = Math.max(32, width);
+          canvas.height = Math.max(32, height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({ blob: file, dataUrl: e.target?.result as string });
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve({ blob, dataUrl });
+              } else {
+                resolve({ blob: file, dataUrl });
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        } catch {
+          resolve({ blob: file, dataUrl: e.target?.result as string });
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function uploadUserProfilePicture(file: File, userId: string): Promise<string> {
   const currentAuthUser = authInstance?.currentUser;
-  if (!currentAuthUser?.uid || currentAuthUser.uid !== userId) {
+  const effectiveUserId = currentAuthUser?.uid || userId;
+
+  if (currentAuthUser?.uid && currentAuthUser.uid !== effectiveUserId) {
     throw new Error('Unauthorized: You can only upload a profile photo for your own account.');
   }
 
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowedTypes.includes(file.type)) {
+  // Validate format
+  const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(file.name);
+  if (!isImage) {
     throw new Error('Invalid file type. Only JPEG, PNG, WEBP, and GIF images are supported.');
   }
 
-  const maxSizeBytes = 5 * 1024 * 1024; // 5MB
+  const maxSizeBytes = 10 * 1024 * 1024; // 10MB input limit
   if (file.size > maxSizeBytes) {
-    throw new Error('File size exceeds the 5MB limit. Please choose a smaller image.');
+    throw new Error('File size exceeds the limit. Please choose a smaller image (under 10MB).');
   }
 
-  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-  const storageRef = ref(storageInstance, `users/${userId}/avatar_${Date.now()}.${fileExt}`);
-  const uploadResult = await uploadBytes(storageRef, file, {
-    contentType: file.type || 'image/jpeg'
+  // 1. Optimize image client-side to ensure lightweight transmission and fast loading
+  let optimizedData: { blob: Blob; dataUrl: string };
+  try {
+    optimizedData = await compressImageClient(file, 400, 0.82);
+  } catch (err: any) {
+    console.warn('[Avatar Upload] Compression notice, falling back to original file:', err);
+    optimizedData = { blob: file, dataUrl: '' };
+  }
+
+  // 2. If Firebase Storage is configured and authenticated, upload the optimized image
+  if (storageInstance && currentAuthUser) {
+    try {
+      const storageRef = ref(storageInstance, `users/${effectiveUserId}/avatar_${Date.now()}.jpg`);
+      const uploadResult = await uploadBytes(storageRef, optimizedData.blob, {
+        contentType: 'image/jpeg'
+      });
+      const downloadUrl = await getDownloadURL(uploadResult.ref);
+      
+      // Update Auth Profile photoURL if available
+      try {
+        await updateProfile(currentAuthUser, { photoURL: downloadUrl });
+      } catch (authProfileErr) {
+        console.warn('[Avatar Upload] Notice updating auth profile photoURL:', authProfileErr);
+      }
+
+      return downloadUrl;
+    } catch (storageErr) {
+      console.warn('[Avatar Upload] Firebase Storage upload notice, falling back to optimized payload:', storageErr);
+      // Fallback: If Storage has CORS/network issue, return the compact optimized dataUrl (~25KB)
+      if (optimizedData.dataUrl) {
+        try {
+          await updateProfile(currentAuthUser, { photoURL: optimizedData.dataUrl });
+        } catch {}
+        return optimizedData.dataUrl;
+      }
+      throw storageErr;
+    }
+  }
+
+  // 3. Fallback for offline or demonstration mode
+  if (optimizedData.dataUrl) {
+    return optimizedData.dataUrl;
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target?.result as string);
+    reader.onerror = () => reject(new Error('Failed to process image file.'));
+    reader.readAsDataURL(file);
   });
-  return await getDownloadURL(uploadResult.ref);
 }
 
 export async function uploadVenuePhoto(file: File, venueId: string): Promise<string> {
@@ -1163,6 +1288,213 @@ export async function uploadVenuePhoto(file: File, venueId: string): Promise<str
     contentType: file.type || 'image/jpeg'
   });
   return await getDownloadURL(uploadResult.ref);
+}
+
+/**
+ * Uploads a profile banner image (JPG, PNG, WebP) to Firebase Storage (or returns optimized dataUrl fallback).
+ * Automatically updates user profile document with bannerUrl.
+ */
+export async function uploadUserBanner(file: File, userId: string): Promise<string> {
+  const currentAuthUser = authInstance?.currentUser;
+  const effectiveUserId = currentAuthUser?.uid || userId;
+
+  if (currentAuthUser?.uid && currentAuthUser.uid !== effectiveUserId) {
+    throw new Error('Unauthorized: You can only upload a profile banner for your own account.');
+  }
+
+  const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(file.name);
+  if (!isImage) {
+    throw new Error('Invalid file type. Only JPEG, PNG, WEBP, and GIF images are supported.');
+  }
+
+  const maxSizeBytes = 15 * 1024 * 1024; // 15MB input limit
+  if (file.size > maxSizeBytes) {
+    throw new Error('File size exceeds the limit. Please choose a smaller image (under 15MB).');
+  }
+
+  // Compress banner horizontally (e.g. 1200px max width, 0.82 quality)
+  let optimizedData: { blob: Blob; dataUrl: string };
+  try {
+    optimizedData = await compressImageClient(file, 1200, 0.82);
+  } catch (err: any) {
+    console.warn('[Banner Upload] Compression notice, falling back to original file:', err);
+    optimizedData = { blob: file, dataUrl: '' };
+  }
+
+  let finalBannerUrl = '';
+
+  if (storageInstance && currentAuthUser) {
+    try {
+      const storageRef = ref(storageInstance, `users/${effectiveUserId}/banner_${Date.now()}.jpg`);
+      const uploadResult = await uploadBytes(storageRef, optimizedData.blob, {
+        contentType: 'image/jpeg'
+      });
+      finalBannerUrl = await getDownloadURL(uploadResult.ref);
+    } catch (storageErr) {
+      console.warn('[Banner Upload] Storage upload notice, using optimized payload:', storageErr);
+      if (optimizedData.dataUrl) {
+        finalBannerUrl = optimizedData.dataUrl;
+      } else {
+        throw storageErr;
+      }
+    }
+  } else if (optimizedData.dataUrl) {
+    finalBannerUrl = optimizedData.dataUrl;
+  } else {
+    finalBannerUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = () => reject(new Error('Failed to process image file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (dbInstance && effectiveUserId && effectiveUserId !== 'guest') {
+    try {
+      const userDocRef = doc(dbInstance, 'users', effectiveUserId);
+      await updateDoc(userDocRef, {
+        bannerUrl: finalBannerUrl,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (dbErr) {
+      console.warn('[Banner Upload] Notice updating user doc bannerUrl:', dbErr);
+    }
+  }
+
+  return finalBannerUrl;
+}
+
+/**
+ * Removes custom banner from user profile, returning them to the default brand banner.
+ */
+export async function removeUserBanner(userId: string): Promise<void> {
+  const currentAuthUser = authInstance?.currentUser;
+  const effectiveUserId = currentAuthUser?.uid || userId;
+
+  if (dbInstance && effectiveUserId && effectiveUserId !== 'guest') {
+    try {
+      const userDocRef = doc(dbInstance, 'users', effectiveUserId);
+      await updateDoc(userDocRef, {
+        bannerUrl: '',
+        updatedAt: new Date().toISOString()
+      });
+    } catch (dbErr) {
+      console.warn('[Banner Removal] Notice updating user doc bannerUrl:', dbErr);
+    }
+  }
+}
+
+/**
+ * 5-Star Rating Service:
+ * Submits a rating (1 to 5) from a participant/organizer to another participant of a completed game.
+ * Validates:
+ * - Rater is authenticated and not rating themselves.
+ * - Rating is an integer from 1 to 5.
+ * - Creates a unique document `/ratings/{gameId}_{raterId}_{targetUserId}`.
+ * - Recalculates average rating and rating count and updates target user document in Firestore.
+ */
+export async function submitPlayerRatingInFirestore(
+  gameId: string,
+  raterId: string,
+  targetUserId: string,
+  rating: number,
+  sport?: SportType
+): Promise<{ ratingAverage: number; ratingCount: number }> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  if (!raterId || !targetUserId || !gameId) {
+    throw new Error('Invalid arguments: gameId, raterId, and targetUserId are required.');
+  }
+  if (raterId === targetUserId) {
+    throw new Error('Self-rating is not allowed.');
+  }
+  const cleanRating = Math.round(Number(rating));
+  if (isNaN(cleanRating) || cleanRating < 1 || cleanRating > 5) {
+    throw new Error('Rating must be an integer between 1 and 5.');
+  }
+
+  const ratingDocId = `${gameId}_${raterId}_${targetUserId}`;
+  const ratingDocRef = doc(dbInstance, 'ratings', ratingDocId);
+  const nowISO = new Date().toISOString();
+
+  // 1. Create rating record
+  await setDoc(ratingDocRef, {
+    id: ratingDocId,
+    gameId,
+    raterId,
+    targetUserId,
+    rating: cleanRating,
+    sport: sport || 'Football',
+    createdAt: nowISO
+  });
+
+  // 2. Fetch all ratings for target user to calculate true average
+  let totalRating = cleanRating;
+  let count = 1;
+
+  try {
+    const ratingsCol = collection(dbInstance, 'ratings');
+    const q = query(ratingsCol, where('targetUserId', '==', targetUserId));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      let sum = 0;
+      snap.forEach(d => {
+        const r = Number(d.data()?.rating);
+        if (!isNaN(r) && r >= 1 && r <= 5) {
+          sum += r;
+        }
+      });
+      count = snap.size;
+      totalRating = Math.round((sum / count) * 10) / 10;
+    }
+  } catch (qErr) {
+    console.warn('[Rating] Notice calculating aggregate ratings:', qErr);
+  }
+
+  // 3. Update target user public profile document with cached rating
+  try {
+    const targetUserRef = doc(dbInstance, 'users', targetUserId);
+    await updateDoc(targetUserRef, {
+      rating: totalRating,
+      ratingAverage: totalRating,
+      ratingCount: count,
+      updatedAt: nowISO
+    });
+  } catch (uErr) {
+    console.warn('[Rating] Notice updating target user doc rating:', uErr);
+  }
+
+  return { ratingAverage: totalRating, ratingCount: count };
+}
+
+/**
+ * Fetches all ratings submitted by a specific rater for a specific game.
+ * Returns a map of targetUserId -> rating score.
+ */
+export async function fetchRatingsForGameAndRater(
+  gameId: string,
+  raterId: string
+): Promise<Record<string, number>> {
+  if (!dbInstance || !gameId || !raterId) return {};
+  try {
+    const ratingsCol = collection(dbInstance, 'ratings');
+    const q = query(
+      ratingsCol,
+      where('gameId', '==', gameId),
+      where('raterId', '==', raterId)
+    );
+    const snap = await getDocs(q);
+    const result: Record<string, number> = {};
+    snap.forEach(d => {
+      const data = d.data();
+      if (data?.targetUserId && typeof data?.rating === 'number') {
+        result[data.targetUserId] = data.rating;
+      }
+    });
+    return result;
+  } catch (err) {
+    console.warn('[Ratings] Notice fetching ratings for game:', err);
+    return {};
+  }
 }
 
 // Games Collection Service
@@ -1193,9 +1525,13 @@ export interface CreateGameFirestoreInput {
   status?: string;
   description?: string;
   linkedBookingId?: string;
+  bookingRef?: string;
   cancellationPolicy?: string;
   costSharing?: GameCostSharing;
   coordinates?: { x: number; y: number };
+  latitude?: number;
+  longitude?: number;
+  locationLabel?: string;
 }
 
 export async function createGameInFirestore(
@@ -1227,6 +1563,17 @@ export async function createGameInFirestore(
   const gameId = gameDocRef.id;
   const nowISO = new Date().toISOString();
 
+  // Resolve location with full backwards compatibility and dual coordinates + lat/lng
+  const resolvedLoc = resolveGameLocation({
+    coordinates: gameInput.coordinates,
+    latitude: gameInput.latitude,
+    longitude: gameInput.longitude,
+    area: gameInput.area,
+    courtName: gameInput.courtName,
+    address: gameInput.address,
+    locationLabel: gameInput.locationLabel
+  });
+
   // Construct clean document with no undefined fields
   const rawDocument: Record<string, any> = {
     id: gameId,
@@ -1244,6 +1591,10 @@ export async function createGameInFirestore(
     governorate: gameInput.governorate || gameInput.area,
     address: gameInput.address || '',
     location: gameInput.location || `${gameInput.courtName.trim()}, ${gameInput.area}`,
+    locationLabel: gameInput.locationLabel || resolvedLoc.locationLabel,
+    coordinates: resolvedLoc.coordinates,
+    latitude: resolvedLoc.latitude,
+    longitude: resolvedLoc.longitude,
     isIndoor: Boolean(gameInput.isIndoor),
     indoorAC: gameInput.indoorAC !== undefined ? Boolean(gameInput.indoorAC) : Boolean(gameInput.isIndoor),
     skillLevel: gameInput.skillLevel || 'Intermediate',
@@ -1258,6 +1609,7 @@ export async function createGameInFirestore(
     description: gameInput.description?.trim() || '',
     status: gameInput.status || 'Open',
     linkedBookingId: gameInput.linkedBookingId || null,
+    bookingRef: gameInput.bookingRef || null,
     costSharing: gameInput.costSharing ? {
       enabled: Boolean(gameInput.costSharing.enabled),
       ...(gameInput.costSharing.methods ? { methods: gameInput.costSharing.methods } : {}),
@@ -1266,7 +1618,6 @@ export async function createGameInFirestore(
       currency: gameInput.costSharing.currency || 'KWD'
     } : { enabled: false },
     cancellationPolicy: gameInput.cancellationPolicy || 'Full refund if cancelled at least 4 hours before kickoff.',
-    coordinates: gameInput.coordinates || { x: 50, y: 50 },
     participants: [
       {
         userId: organizerUser.uid,
@@ -1317,6 +1668,23 @@ export async function createGameInFirestore(
     });
 
     await Promise.race([writeOperation, timeoutOperation]);
+
+    // If WAMD is enabled and phone number provided, save private WAMD details
+    if (
+      gameInput.costSharing?.enabled &&
+      isCostSharingMethodSelected(gameInput.costSharing, 'wamd') &&
+      gameInput.costSharing?.wamdPhoneNumber
+    ) {
+      try {
+        await saveGameWamdDetailsInFirestore({
+          gameId,
+          hostId: organizerUser.uid,
+          wamdPhoneNumber: gameInput.costSharing.wamdPhoneNumber
+        });
+      } catch (wamdErr) {
+        console.warn('[Firestore] Notice saving initial WAMD details:', wamdErr);
+      }
+    }
 
     // Diagnostic: Log immediately when the write succeeds
     console.log('[Firestore Diagnostic] Game write successfully committed to Firestore:', {
@@ -1941,10 +2309,16 @@ export function mapFirestoreDocToGame(id: string, data: Record<string, any>): Ga
     }
   }
 
-  // Map coordinates (for Kuwait radar map view)
-  const coords = data.coordinates && typeof data.coordinates.x === 'number' && typeof data.coordinates.y === 'number'
-    ? data.coordinates
-    : { x: 50, y: 50 };
+  // Resolve location with full backwards compatibility and dual coordinates + lat/lng
+  const resolvedLoc = resolveGameLocation({
+    coordinates: data.coordinates,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    area,
+    courtName,
+    address: data.address,
+    locationLabel: data.locationLabel || data.location
+  });
 
   return {
     id,
@@ -1956,7 +2330,11 @@ export function mapFirestoreDocToGame(id: string, data: Record<string, any>): Ga
     courtName,
     area,
     address: data.address || '',
-    coordinates: coords,
+    coordinates: resolvedLoc.coordinates,
+    latitude: resolvedLoc.latitude,
+    longitude: resolvedLoc.longitude,
+    locationLabel: data.locationLabel || resolvedLoc.locationLabel,
+    bookingRef: data.bookingRef || undefined,
     isIndoor,
     maxPlayers,
     organizer: {
@@ -2104,19 +2482,78 @@ export async function updateGameInFirestore(
     if (updates.title !== undefined && updates.title.trim()) {
       payload.title = updates.title.trim();
     }
-    if (updates.date !== undefined && updates.date.trim()) {
-      payload.date = updates.date.trim();
+    // Li3ib Booking Security: Verify locked court, sport, location, date, and times
+    const isLi3ibGame = Boolean(data.linkedBookingId);
+
+    if (isLi3ibGame) {
+      if (updates.date !== undefined && updates.date.trim() !== (data.date || '')) {
+        throw new Error('Date is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.startTime !== undefined && updates.startTime.trim() !== (data.startTime || '')) {
+        throw new Error('Start time is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.endTime !== undefined && updates.endTime.trim() !== (data.endTime || '')) {
+        throw new Error('End time is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.courtName !== undefined && updates.courtName.trim() !== (data.courtName || data.venue)) {
+        throw new Error('Court/Venue name is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.sport !== undefined && updates.sport !== data.sport) {
+        throw new Error('Sport is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.address !== undefined && updates.address.trim() !== (data.address || '')) {
+        throw new Error('Address is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.coordinates !== undefined) {
+        const origCoords = data.coordinates || { x: 50, y: 50 };
+        if (updates.coordinates.x !== origCoords.x || updates.coordinates.y !== origCoords.y) {
+          throw new Error('Location coordinates are locked from the original Li3ib booking and cannot be modified.');
+        }
+      }
+      if (updates.latitude !== undefined && data.latitude !== undefined && updates.latitude !== data.latitude) {
+        throw new Error('Latitude is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.longitude !== undefined && data.longitude !== undefined && updates.longitude !== data.longitude) {
+        throw new Error('Longitude is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.linkedBookingId !== undefined && updates.linkedBookingId !== data.linkedBookingId) {
+        throw new Error('Li3ib booking reference cannot be altered or detached.');
+      }
+    } else {
+      if (updates.date !== undefined && updates.date.trim()) {
+        payload.date = updates.date.trim();
+      }
+      if (updates.startTime !== undefined && updates.startTime.trim()) {
+        payload.startTime = updates.startTime.trim();
+      }
+      if (updates.endTime !== undefined) {
+        payload.endTime = updates.endTime.trim();
+      }
+      // Ordinary games can update their venue and map location
+      if (updates.courtName !== undefined && updates.courtName.trim()) {
+        payload.courtName = updates.courtName.trim();
+        payload.venue = updates.courtName.trim();
+      }
+      if (updates.address !== undefined) {
+        payload.address = updates.address.trim();
+      }
+      if (updates.coordinates !== undefined || updates.latitude !== undefined || updates.longitude !== undefined) {
+        const resolved = resolveGameLocation({
+          coordinates: updates.coordinates ?? data.coordinates,
+          latitude: updates.latitude ?? data.latitude,
+          longitude: updates.longitude ?? data.longitude,
+          area: updates.area ?? data.area,
+          courtName: updates.courtName ?? data.courtName,
+          address: updates.address ?? data.address,
+          locationLabel: updates.locationLabel ?? data.locationLabel
+        });
+        payload.coordinates = resolved.coordinates;
+        payload.latitude = resolved.latitude;
+        payload.longitude = resolved.longitude;
+        payload.locationLabel = updates.locationLabel || resolved.locationLabel;
+      }
     }
-    if (updates.startTime !== undefined && updates.startTime.trim()) {
-      payload.startTime = updates.startTime.trim();
-    }
-    if (updates.endTime !== undefined) {
-      payload.endTime = updates.endTime.trim();
-    }
-    if (updates.courtName !== undefined && updates.courtName.trim()) {
-      payload.courtName = updates.courtName.trim();
-      payload.venue = updates.courtName.trim();
-    }
+
     if (updates.area !== undefined && updates.area.trim()) {
       payload.area = updates.area.trim();
     }
@@ -2124,7 +2561,13 @@ export async function updateGameInFirestore(
       payload.description = updates.description;
     }
     if (updates.costSharing !== undefined) {
-      payload.costSharing = updates.costSharing;
+      payload.costSharing = {
+        enabled: Boolean(updates.costSharing.enabled),
+        ...(updates.costSharing.methods ? { methods: updates.costSharing.methods } : {}),
+        ...(updates.costSharing.method ? { method: updates.costSharing.method } : {}),
+        ...(updates.costSharing.estimatedShare !== undefined ? { estimatedShare: Number(updates.costSharing.estimatedShare) } : {}),
+        currency: updates.costSharing.currency || 'KWD'
+      };
     }
 
     transaction.update(gameDocRef, payload);
@@ -2135,6 +2578,31 @@ export async function updateGameInFirestore(
       updatedAtISO: nowISO
     });
   });
+
+  // Manage private WAMD details subcollection outside transaction
+  if (updates.costSharing !== undefined) {
+    if (
+      updates.costSharing.enabled &&
+      isCostSharingMethodSelected(updates.costSharing, 'wamd') &&
+      updates.costSharing.wamdPhoneNumber
+    ) {
+      try {
+        await saveGameWamdDetailsInFirestore({
+          gameId,
+          hostId: currentUserId,
+          wamdPhoneNumber: updates.costSharing.wamdPhoneNumber
+        });
+      } catch (wamdErr) {
+        console.warn('[Firestore] Notice updating WAMD details:', wamdErr);
+      }
+    } else if (!updates.costSharing.enabled || !isCostSharingMethodSelected(updates.costSharing, 'wamd')) {
+      try {
+        await deleteGameWamdDetailsInFirestore(gameId);
+      } catch (wamdErr) {
+        console.warn('[Firestore] Notice cleaning up WAMD details:', wamdErr);
+      }
+    }
+  }
 
   return updatedGame;
 }
@@ -2457,7 +2925,7 @@ export function calculatePlayerActivityStats(
           date: game.date,
           startTime: game.startTime,
           courtName: game.courtName,
-          area: game.area,
+          area: game.area as KuwaitArea,
           title: game.title
         });
       }
@@ -2473,7 +2941,7 @@ export function calculatePlayerActivityStats(
           date: game.date,
           startTime: game.startTime,
           courtName: game.courtName,
-          area: game.area,
+          area: game.area as KuwaitArea,
           title: game.title
         });
       }
@@ -2949,7 +3417,8 @@ export function mapDocToPublicProfile(docId: string, data: Record<string, any>):
   const privacy = {
     showAge: data.privacy?.showAge ?? true,
     showPhone: data.privacy?.showPhone ?? false,
-    allowDirectInvites: data.privacy?.allowDirectInvites ?? true
+    allowDirectInvites: data.privacy?.allowDirectInvites ?? true,
+    isPrivateProfile: data.privacy?.isPrivateProfile ?? false
   };
 
   const sports = Array.isArray(data.favoriteSports) && data.favoriteSports.length > 0
@@ -3187,6 +3656,38 @@ export function subscribeToUserFollowing(
     },
     (err) => {
       console.error(`[Firestore Users] Snapshot error in subscribeToUserFollowing:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Subscribes to real-time updates of players following the specified user.
+ * Subcollection: users/{userId}/followers
+ */
+export function subscribeToUserFollowers(
+  userId: string,
+  onFollowerIds: (ids: Set<string>) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  if (!dbInstance || !userId) {
+    onFollowerIds(new Set());
+    return () => {};
+  }
+
+  const followersCol = collection(dbInstance, 'users', userId, 'followers');
+
+  return onSnapshot(
+    followersCol,
+    (snap) => {
+      const ids = new Set<string>();
+      snap.forEach(docSnap => {
+        ids.add(docSnap.id);
+      });
+      onFollowerIds(ids);
+    },
+    (err) => {
+      console.error(`[Firestore Users] Snapshot error in subscribeToUserFollowers:`, err);
       if (onError) onError(err);
     }
   );
@@ -5608,11 +6109,12 @@ export async function markPaymentLinkRequestHandledInFirestore(params: {
   hostId: string;
 }): Promise<void> {
   if (!dbInstance) throw new Error('Firestore is not initialized.');
-  const reqDocRef = doc(dbInstance, 'games', params.gameId, 'paymentLinkRequests', params.requesterId);
+  const firestore = dbInstance;
+  const reqDocRef = doc(firestore, 'games', params.gameId, 'paymentLinkRequests', params.requesterId);
   const nowISO = new Date().toISOString();
 
-  await runTransaction(dbInstance, async (transaction) => {
-    const gameDocRef = doc(dbInstance, 'games', params.gameId);
+  await runTransaction(firestore, async (transaction) => {
+    const gameDocRef = doc(firestore, 'games', params.gameId);
     const gameSnap = await transaction.get(gameDocRef);
     if (!gameSnap.exists()) {
       throw new Error('Game not found.');
@@ -5680,5 +6182,96 @@ export function subscribeToPaymentLinkRequestsForGame(
   return unsubscribe;
 }
 
+/**
+ * Saves private WAMD details to /games/{gameId}/costSharingDetails/wamd.
+ * Accessible only by confirmed participants, organizer, or admin.
+ */
+export async function saveGameWamdDetailsInFirestore(params: {
+  gameId: string;
+  hostId: string;
+  wamdPhoneNumber: string;
+}): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const formattedPhone = formatKuwaitMobile(params.wamdPhoneNumber);
+  const docRef = doc(dbInstance, 'games', params.gameId, 'costSharingDetails', 'wamd');
+  const nowISO = new Date().toISOString();
 
+  await setDoc(docRef, {
+    gameId: params.gameId,
+    organizerId: params.hostId,
+    wamdPhoneNumber: formattedPhone,
+    updatedAt: nowISO
+  });
+}
 
+/**
+ * Deletes private WAMD details document from /games/{gameId}/costSharingDetails/wamd.
+ */
+export async function deleteGameWamdDetailsInFirestore(gameId: string): Promise<void> {
+  if (!dbInstance) return;
+  const docRef = doc(dbInstance, 'games', gameId, 'costSharingDetails', 'wamd');
+  try {
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn(`[Firestore] Notice deleting WAMD details for game ${gameId}:`, err);
+  }
+}
+
+/**
+ * Fetches private WAMD phone number for a game.
+ * Protected by Firestore ABAC rules (only participants & host can read).
+ */
+export async function fetchGameWamdDetailsFromFirestore(gameId: string): Promise<string | null> {
+  if (!dbInstance) return null;
+  const docRef = doc(dbInstance, 'games', gameId, 'costSharingDetails', 'wamd');
+  try {
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return (snap.data()?.wamdPhoneNumber as string) || null;
+    }
+    return null;
+  } catch (err) {
+    // If user is not authorized (e.g. non-participant), returns null
+    return null;
+  }
+}
+
+/**
+ * Uploads a private user booking confirmation document (JPEG, PNG, WebP, PDF) to Firebase Storage
+ * under /bookings/{userId}/{fileName}.
+ * Restricts access to authorized user per storage.rules.
+ */
+export async function uploadBookingConfirmation(
+  file: File,
+  userId: string
+): Promise<{ storagePath: string; fileName: string; mimeType: string; downloadUrl?: string }> {
+  const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storagePath = `bookings/${userId}/booking_${Date.now()}_${cleanName}`;
+  const mimeType = file.type || 'application/octet-stream';
+
+  if (storageInstance) {
+    try {
+      const storageRef = ref(storageInstance, storagePath);
+      await uploadBytes(storageRef, file, { contentType: mimeType });
+      const downloadUrl = await getDownloadURL(storageRef).catch(() => undefined);
+      return { storagePath, fileName: file.name, mimeType, downloadUrl };
+    } catch (err) {
+      console.warn('[Storage] Notice uploading booking confirmation, using local document reference:', err);
+    }
+  }
+
+  return { storagePath, fileName: file.name, mimeType };
+}
+
+/**
+ * Deletes a private booking confirmation document from Firebase Storage if present.
+ */
+export async function deleteBookingConfirmation(storagePath: string): Promise<void> {
+  if (!storageInstance || !storagePath) return;
+  try {
+    const storageRef = ref(storageInstance, storagePath);
+    await deleteObject(storageRef);
+  } catch (err) {
+    console.warn('[Storage] Notice deleting booking confirmation:', err);
+  }
+}

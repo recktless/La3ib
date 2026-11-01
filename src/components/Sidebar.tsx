@@ -1,159 +1,381 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Home, 
-  Compass, 
+  Users, 
+  MapPin, 
   CalendarPlus, 
   Trophy, 
-  Users, 
   User, 
   PlusCircle, 
-  ShieldAlert,
-  Flame,
-  CreditCard
+  X, 
+  Search, 
+  Globe, 
+  Sun, 
+  Moon, 
+  Monitor, 
+  PanelLeftClose,
+  ShieldCheck,
+  Settings,
+  LayoutDashboard
 } from 'lucide-react';
+import { La3ibLogo } from './La3ibLogo';
 
 export const Sidebar: React.FC = () => {
   const { 
     activeTab, 
     setActiveTab, 
     setBookingModalOpen, 
-    setCreateGameModalOpen,
-    setCreateGamePrefill,
-    t,
-    myBookings,
-    games,
-    currentUser
+    setCreateGameModalOpen, 
+    setCreateGamePrefill, 
+    setSafetyModalOpen,
+    setAdminModalOpen,
+    openSettings,
+    t, 
+    games, 
+    currentUser, 
+    authStatus,
+    isSidebarOpen, 
+    setIsSidebarOpen, 
+    searchQuery, 
+    setSearchQuery, 
+    language, 
+    setLanguage, 
+    themePreference, 
+    setThemePreference, 
+    isDesktopSidebarCollapsed, 
+    toggleDesktopSidebar 
   } = useApp();
 
-  const myUpcomingGamesCount = games.filter(g => 
+  // Prevent background scrolling while off-canvas drawer is open on mobile/tablet
+  useEffect(() => {
+    if (isSidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isSidebarOpen]);
+
+  const myUpcomingGamesCount = (games || []).filter(g => 
     g.status !== 'Completed' && 
     g.status !== 'Cancelled' && 
-    g.participants.some(p => p.userId === currentUser.id)
+    Array.isArray(g.participants) &&
+    g.participants.some(p => p.userId === (currentUser.uid || currentUser.id))
   ).length;
 
-  return (
-    <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-neutral-950 border-r border-neutral-800/80 p-5 min-h-[calc(100vh-61px)] select-none">
-      {/* Quick Action Buttons */}
-      <div className="space-y-2 mb-6">
-        <button
-          onClick={() => {
-            setCreateGamePrefill(null);
-            setCreateGameModalOpen(true);
-          }}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-neutral-950 font-bold text-sm shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer transform active:scale-[0.98]"
-        >
-          <PlusCircle className="w-5 h-5" />
-          <span>{t('Create a Game', 'أنشئ مباراة')}</span>
-        </button>
+  const handleNavClick = (tab: any) => {
+    setActiveTab(tab);
+    if (setIsSidebarOpen) {
+      setIsSidebarOpen(false);
+    }
+  };
 
-        <button
-          onClick={() => setBookingModalOpen(true)}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-neutral-900 hover:bg-neutral-800/90 border border-neutral-800 hover:border-emerald-500/40 text-emerald-400 font-semibold text-xs transition-all cursor-pointer"
-        >
-          <CalendarPlus className="w-4 h-4 text-emerald-400" />
-          <span>{t('Book Court via Li3ib', 'احجز ملعب عبر Li3ib')}</span>
-        </button>
-      </div>
+  const navLinks = [
+    { id: 'home', label: t('Home', 'الرئيسية'), icon: Home },
+    { id: 'community', label: t('Community', 'المجتمع'), icon: Users },
+    { id: 'map', label: t('Map', 'الخريطة'), icon: MapPin },
+    { id: 'games', label: t('My Games', 'مبارياتي'), icon: Trophy, count: myUpcomingGamesCount },
+    { id: 'profile', label: t('Profile', 'الملف الشخصي'), icon: User }
+  ];
 
-      {/* Main Navigation Links */}
-      <div className="space-y-1 text-sm">
-        <button
-          onClick={() => setActiveTab('home')}
-          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium transition-all ${
-            activeTab === 'home'
-              ? 'bg-neutral-900 text-emerald-400 font-bold border border-emerald-500/20'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
-          }`}
-        >
-          <Home className="w-4 h-4" />
-          <span>{t('Home', 'الرئيسية')}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('discover')}
-          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium transition-all ${
-            activeTab === 'discover'
-              ? 'bg-neutral-900 text-emerald-400 font-bold border border-emerald-500/20'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <Compass className="w-4 h-4" />
-            <span>{t('Discover Games', 'استكشاف المباريات')}</span>
-          </div>
-          <span className="text-[10px] uppercase font-bold bg-emerald-950 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-800/60">
-            {t('Map', 'خريطة')}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('games')}
-          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium transition-all ${
-            activeTab === 'games'
-              ? 'bg-neutral-900 text-emerald-400 font-bold border border-emerald-500/20'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <Trophy className="w-4 h-4" />
-            <span>{t('My Games & Bookings', 'مبارياتي وحجوزاتي')}</span>
-          </div>
-          {myUpcomingGamesCount > 0 && (
-            <span className="text-xs font-bold bg-emerald-500 text-neutral-950 w-5 h-5 rounded-full flex items-center justify-center">
-              {myUpcomingGamesCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('players')}
-          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium transition-all ${
-            activeTab === 'players'
-              ? 'bg-neutral-900 text-emerald-400 font-bold border border-emerald-500/20'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>{t('Find Players', 'البحث عن لاعبين')}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('profile')}
-          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium transition-all ${
-            activeTab === 'profile'
-              ? 'bg-neutral-900 text-emerald-400 font-bold border border-emerald-500/20'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
-          }`}
-        >
-          <User className="w-4 h-4" />
-          <span>{t('Sports Profile', 'الملف الرياضي')}</span>
-        </button>
-      </div>
-
-      {/* Li3ib Partnership Card */}
-      <div className="mt-auto pt-6">
-        <div className="p-4 rounded-2xl bg-gradient-to-b from-neutral-900 to-neutral-900/70 border border-neutral-800">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              Li3ib Integrated
-            </span>
-            <span className="text-[10px] text-neutral-400">Kuwait Official</span>
-          </div>
-          <p className="text-xs text-neutral-300 font-medium leading-relaxed">
-            {t(
-              'Book any court through Li3ib, then post your game here with optional cost sharing with players.',
-              'احجز أي ملعب عبر Li3ib ثم انشر المباراة هنا مع خيار تقاسم التكلفة مع اللاعبين.'
-            )}
-          </p>
+  const renderNavContent = (isMobileDrawer: boolean = false) => (
+    <div className="flex flex-col h-full justify-between">
+      <div>
+        {/* Quick Action: Create Game & Book Directly */}
+        <div className="space-y-2 mb-5">
           <button
-            onClick={() => setBookingModalOpen(true)}
-            className="mt-3 w-full text-xs font-semibold py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors"
+            type="button"
+            onClick={() => {
+              setCreateGamePrefill(null);
+              setCreateGameModalOpen(true);
+              if (setIsSidebarOpen) setIsSidebarOpen(false);
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#3A60AA] hover:bg-[#2E4D8A] text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
           >
-            {t('Explore Courts', 'استعرض الملاعب')} →
+            <PlusCircle className="w-4 h-4" />
+            <span>{t('Create Game', 'أنشئ مباراة')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              handleNavClick('book-directly');
+            }}
+            className={`w-full flex items-center justify-between py-2 px-3 rounded-xl border transition-colors cursor-pointer ${
+              activeTab === 'book-directly'
+                ? 'bg-[#3A60AA] text-white border-[#3A60AA] shadow-xs'
+                : 'bg-[#EEF3F9] hover:bg-[#DCE5F2] dark:bg-[#0D1C68] dark:hover:bg-[#142578] border-[#B9C9E0]/60 dark:border-[#1F3590] text-[#06135B] dark:text-[#B9C9E0]'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <CalendarPlus className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
+              <span className="font-semibold text-xs truncate">{t('Book Directly', 'احجز مباشرة')}</span>
+            </div>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+              activeTab === 'book-directly'
+                ? 'bg-white/20 text-white'
+                : 'bg-white dark:bg-[#131C31] text-[#3A60AA] dark:text-[#B9C9E0] border border-[#B9C9E0]/40 dark:border-[#1F3590]/50'
+            }`}>
+              {t('Coming Soon', 'قريبًا')}
+            </span>
+          </button>
+        </div>
+
+        {/* Main Navigation Links */}
+        <nav className="space-y-1.5 text-sm font-medium" aria-label="Sidebar Navigation">
+          {navLinks.map((link) => {
+            const Icon = link.icon;
+            const isActive = activeTab === link.id || 
+              (link.id === 'community' && (activeTab === 'discover' || activeTab === 'players'));
+
+            return (
+              <button
+                key={link.id}
+                type="button"
+                onClick={() => handleNavClick(link.id)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-[#3A60AA] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:text-[#06135B] hover:bg-[#EEF3F9] dark:text-[#B9C9E0] dark:hover:text-white dark:hover:bg-[#0D1C68]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span>{link.label}</span>
+                </div>
+                {typeof link.count === 'number' && link.count > 0 && (
+                  <span className={`text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center ${
+                    isActive
+                      ? 'bg-white text-[#3A60AA]'
+                      : 'bg-[#3A60AA] text-white'
+                  }`}>
+                    {link.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Secondary Links (Guidelines, Settings on mobile drawer, Admin) */}
+        <div className="mt-4 pt-3 border-t border-[#B9C9E0]/40 dark:border-[#1F3590]/50 space-y-1">
+          {isMobileDrawer && (
+            <button
+              type="button"
+              onClick={() => {
+                openSettings();
+                if (setIsSidebarOpen) setIsSidebarOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer"
+            >
+              <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+              <span>{t('Settings', 'الإعدادات')}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('guidelines');
+              if (setIsSidebarOpen) setIsSidebarOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === 'guidelines'
+                ? 'bg-[#3A60AA] text-white shadow-xs'
+                : 'text-slate-700 dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68]'
+            }`}
+          >
+            <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'guidelines' ? 'text-white' : 'text-[#3A60AA] dark:text-[#B9C9E0]'}`} />
+            <span>{t('Community Guidelines', 'إرشادات المجتمع')}</span>
+          </button>
+
+          {currentUser.isAdmin && authStatus === 'authenticated' && !currentUser.isDemoUser && (
+            <button
+              type="button"
+              onClick={() => {
+                setAdminModalOpen(true);
+                if (setIsSidebarOpen) setIsSidebarOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer"
+            >
+              <LayoutDashboard className="w-4 h-4 shrink-0" />
+              <span>{t('Admin Dashboard', 'لوحة التحكم للمشرف')}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Preferences Section: Language and Theme */}
+      <div className="pt-4 mt-auto border-t border-[#B9C9E0]/50 dark:border-[#1F3590]/50 space-y-3">
+        <div className="text-xs font-semibold text-slate-500 dark:text-[#B9C9E0]/80">
+          {t('Preferences', 'التفضيلات')}
+        </div>
+
+        {/* Language Selection */}
+        <div className="flex items-center justify-between bg-[#EEF3F9] dark:bg-[#0D1C68] p-1 rounded-xl border border-[#B9C9E0]/60 dark:border-[#1F3590]/80">
+          <button
+            type="button"
+            onClick={() => setLanguage('en')}
+            className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              language === 'en'
+                ? 'bg-white dark:bg-[#142578] text-[#06135B] dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-[#B9C9E0]'
+            }`}
+          >
+            <Globe className="w-3 h-3 text-slate-400" />
+            <span>English</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage('ar')}
+            className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              language === 'ar'
+                ? 'bg-white dark:bg-[#142578] text-[#06135B] dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-[#B9C9E0]'
+            }`}
+          >
+            <span>العربية</span>
+          </button>
+        </div>
+
+        {/* Appearance Selection (Light / Dark / System) */}
+        <div className="flex items-center justify-between bg-[#EEF3F9] dark:bg-[#0D1C68] p-1 rounded-xl border border-[#B9C9E0]/60 dark:border-[#1F3590]/80">
+          <button
+            type="button"
+            onClick={() => setThemePreference('light')}
+            title={t('Light Mode', 'الوضع الفاتح')}
+            className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+              themePreference === 'light'
+                ? 'bg-white text-[#06135B] shadow-xs font-bold'
+                : 'text-slate-600 dark:text-[#B9C9E0]'
+            }`}
+          >
+            <Sun className="w-3 h-3 text-[#3A60AA]" />
+            <span>{t('Light', 'فاتح')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setThemePreference('dark')}
+            title={t('Dark Mode', 'الوضع الداكن')}
+            className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+              themePreference === 'dark'
+                ? 'bg-[#142578] text-white shadow-xs font-bold'
+                : 'text-slate-600 dark:text-[#B9C9E0]'
+            }`}
+          >
+            <Moon className="w-3 h-3 text-[#B9C9E0]" />
+            <span>{t('Dark', 'داكن')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setThemePreference('system')}
+            title={t('System Mode', 'وضع النظام')}
+            className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+              themePreference === 'system'
+                ? 'bg-white dark:bg-[#142578] text-[#06135B] dark:text-white shadow-xs font-bold'
+                : 'text-slate-600 dark:text-[#B9C9E0]'
+            }`}
+          >
+            <Monitor className="w-3 h-3 text-slate-500" />
+            <span>{t('Auto', 'تلقائي')}</span>
           </button>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* 1. Desktop Persistent Slim Sidebar (Instagram/Strava style, collapsible) */}
+      <aside className={`${isDesktopSidebarCollapsed ? 'hidden' : 'hidden lg:flex'} flex-col w-60 xl:w-64 shrink-0 sticky top-0 h-screen overflow-y-auto bg-white dark:bg-[#06135B] border-r border-[#E2E8F0] dark:border-[#1F3590]/60 p-5 select-none z-30 transition-colors`}>
+        {/* Official Logo + Collapse Button at the top of desktop sidebar */}
+        <div className="flex items-center justify-between mb-6 shrink-0">
+          <div 
+            onClick={() => setActiveTab('home')}
+            className="flex items-center cursor-pointer select-none shrink-0"
+            role="button"
+            tabIndex={0}
+            title={t('Go to Home', 'الرئيسية')}
+          >
+            <La3ibLogo size="md" />
+          </div>
+          <button
+            type="button"
+            onClick={toggleDesktopSidebar}
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:text-[#B9C9E0]/70 dark:hover:text-white hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer"
+            title={t('Collapse sidebar', 'تصغير الشريط الجانبي')}
+            aria-label={t('Collapse sidebar', 'تصغير الشريط الجانبي')}
+          >
+            <PanelLeftClose className="w-4 h-4 rtl:rotate-180" />
+          </button>
+        </div>
+
+        {renderNavContent(false)}
+      </aside>
+
+      {/* 2. Mobile & Tablet Off-Canvas Drawer Navigation */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation drawer">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/60 transition-opacity"
+            onClick={() => setIsSidebarOpen && setIsSidebarOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Drawer Panel */}
+          <div className="fixed top-0 bottom-0 left-0 rtl:left-auto rtl:right-0 w-72 max-w-[85vw] bg-white dark:bg-[#06135B] border-r border-[#B9C9E0]/60 dark:border-[#1F3590] rtl:border-r-0 rtl:border-l rounded-r-3xl rtl:rounded-r-none rtl:rounded-l-3xl p-5 flex flex-col z-50 overflow-y-auto shadow-2xl">
+            {/* Drawer Header with Close Button */}
+            <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-[#B9C9E0]/40 dark:border-[#1F3590]/50">
+              <La3ibLogo size="md" />
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen && setIsSidebarOpen(false)}
+                className="p-2 rounded-xl text-slate-600 hover:text-slate-900 dark:text-[#B9C9E0] dark:hover:text-white hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer"
+                aria-label={t('Close navigation', 'إغلاق القائمة')}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mobile Search Bar at Top of Drawer */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3.5 rtl:left-auto rtl:right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setActiveTab('community');
+                      if (setIsSidebarOpen) setIsSidebarOpen(false);
+                    }
+                  }}
+                  placeholder={t('Search games, sports, courts...', 'ابحث عن مباريات، رياضات، ملاعب...')}
+                  className="w-full bg-[#EEF3F9] dark:bg-[#0D1C68] border border-[#B9C9E0]/60 dark:border-[#1F3590] rounded-xl pl-10 rtl:pl-7 rtl:pr-10 pr-7 py-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#3A60AA]"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 rtl:right-auto rtl:left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {renderNavContent(true)}
+          </div>
+        </div>
+      )}
+    </>
   );
 };

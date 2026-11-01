@@ -9,13 +9,12 @@ import {
   ArrowRight, 
   Loader2, 
   AlertCircle, 
-  Sparkles, 
-  CheckCircle2,
-  Shield,
-  ArrowLeft
+  CheckCircle2, 
+  ArrowLeft 
 } from 'lucide-react';
-import { KuwaitArea } from '../types';
+import { KuwaitArea, getKuwaitAreaLabel } from '../types';
 import { mapFirebaseAuthError } from '../lib/firebase';
+import { La3ibLogo } from './La3ibLogo';
 
 export const AuthModal: React.FC = () => {
   const { 
@@ -27,7 +26,6 @@ export const AuthModal: React.FC = () => {
     registerWithEmail,
     loginWithGoogleAuth,
     sendPasswordResetEmailAction,
-    continueAsDemo,
     t,
     language 
   } = useApp();
@@ -133,37 +131,33 @@ export const AuthModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 overflow-y-auto">
       <div 
-        className="relative w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-2xl overflow-hidden"
+        className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl p-5 sm:p-8 max-h-[92dvh] overflow-y-auto transition-colors"
         dir={language === 'ar' ? 'rtl' : 'ltr'}
       >
-        {/* Subtle decorative glow */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
         {/* Close Button */}
         <button
           onClick={handleClose}
-          className="absolute top-5 right-5 p-2 rounded-full bg-neutral-800/80 hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+          className="absolute top-5 right-5 rtl:right-auto rtl:left-5 p-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#253452] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer border border-slate-200 dark:border-[#2A3B5C]"
           aria-label="Close"
         >
           <X className="w-4 h-4" />
         </button>
 
-        {/* Brand Header */}
+        {/* Brand Header with Official Logo */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 mb-3 font-bold text-xl shadow-inner">
-            ⚽
+          <div className="flex justify-center mb-3">
+            <La3ibLogo size="lg" showText={false} />
           </div>
-          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {authModalMode === 'forgot_password'
               ? t('Reset Password', 'استعادة كلمة المرور')
               : authModalMode === 'login'
               ? t('Welcome Back to La3ib', 'مرحباً بك مجدداً في لعيب')
               : t('Create Your Athlete Profile', 'أنشئ حسابك الرياضي')}
           </h2>
-          <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
             {authModalMode === 'forgot_password'
               ? t('Enter your registered email and we will send a password reset link.', 'أدخل بريدك الإلكتروني المسجل وسنرسل لك رابط إعادة تعيين كلمة المرور.')
               : authModalMode === 'login'
@@ -172,16 +166,16 @@ export const AuthModal: React.FC = () => {
           </p>
         </div>
 
-        {/* Mode Switcher Tabs (Only in login / register modes) */}
+        {/* Mode Switcher Tabs */}
         {authModalMode !== 'forgot_password' && (
-          <div className="flex bg-neutral-950 p-1 rounded-2xl border border-neutral-800 mb-6">
+          <div className="flex bg-slate-100 dark:bg-[#1B253D] p-1 rounded-2xl border border-slate-200 dark:border-[#2A3B5C] mb-6">
             <button
               type="button"
               onClick={() => { setAuthModalMode('login'); setError(null); }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                 authModalMode === 'login'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-md'
-                  : 'text-neutral-400 hover:text-white'
+                  ? 'bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               {t('Sign In', 'تسجيل الدخول')}
@@ -189,10 +183,10 @@ export const AuthModal: React.FC = () => {
             <button
               type="button"
               onClick={() => { setAuthModalMode('register'); setError(null); }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                 authModalMode === 'register'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-md'
-                  : 'text-neutral-400 hover:text-white'
+                  ? 'bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               {t('Create Account', 'حساب جديد')}
@@ -202,33 +196,33 @@ export const AuthModal: React.FC = () => {
 
         {/* Error Alert */}
         {error && (
-          <div className="mb-4 p-3 rounded-xl bg-red-950/50 border border-red-800/80 text-red-200 text-xs flex items-start gap-2 animate-in fade-in">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
             <span className="leading-relaxed">{error}</span>
           </div>
         )}
 
         {/* Success Alert for Reset Link */}
         {resetSent && (
-          <div className="mb-4 p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 text-xs flex items-start gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[#1246DF] dark:text-[#05BCD1] text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="leading-relaxed">
               {t('If an account exists for this email, password reset instructions have been sent. Please check your inbox.', 'تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني إذا كان مسجلاً.')}
             </span>
           </div>
         )}
 
-        {/* Google Sign In Button (in login / register modes) */}
+        {/* Google Sign In Button */}
         {authModalMode !== 'forgot_password' && (
           <>
             <button
               type="button"
               onClick={handleGoogleSignIn}
               disabled={googleLoading || loading}
-              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-750 border border-neutral-700 text-neutral-100 font-semibold text-xs sm:text-sm transition-all shadow-sm hover:border-neutral-600 disabled:opacity-50 mb-4 cursor-pointer"
+              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-[#1B253D] dark:hover:bg-[#243350] border border-slate-200 dark:border-[#2A3B5C] text-slate-800 dark:text-slate-100 font-semibold text-xs sm:text-sm transition-colors disabled:opacity-50 mb-4 cursor-pointer"
             >
               {googleLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                <Loader2 className="w-4 h-4 animate-spin text-[#1246DF] dark:text-[#05BCD1]" />
               ) : (
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
@@ -254,11 +248,11 @@ export const AuthModal: React.FC = () => {
 
             {/* Divider */}
             <div className="relative flex items-center justify-center my-4">
-              <div className="border-t border-neutral-800 w-full" />
-              <span className="bg-neutral-900 px-3 text-[11px] text-neutral-500 uppercase tracking-wider font-semibold">
+              <div className="border-t border-slate-200 dark:border-[#22304E] w-full" />
+              <span className="bg-white dark:bg-[#131C31] px-3 text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
                 {t('Or with email', 'أو بالبريد الإلكتروني')}
               </span>
-              <div className="border-t border-neutral-800 w-full" />
+              <div className="border-t border-slate-200 dark:border-[#22304E] w-full" />
             </div>
           </>
         )}
@@ -268,35 +262,35 @@ export const AuthModal: React.FC = () => {
           {authModalMode === 'register' && (
             <>
               <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
                   {t('Full Name', 'الاسم الكامل')}
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder={t('e.g. Faisal Al-Sabah', 'مثال: فيصل الصباح')}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1] transition-colors"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
                   {t('Primary Area in Kuwait', 'المنطقة السكنية')}
                 </label>
                 <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   <select
                     value={area}
                     onChange={(e) => setArea(e.target.value as KuwaitArea)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors appearance-none cursor-pointer"
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1] transition-colors appearance-none cursor-pointer"
                   >
                     {kuwaitAreas.map((a) => (
-                      <option key={a} value={a}>{a}</option>
+                      <option key={a} value={a}>{getKuwaitAreaLabel(a, language)}</option>
                     ))}
                   </select>
                 </div>
@@ -305,18 +299,18 @@ export const AuthModal: React.FC = () => {
           )}
 
           <div>
-            <label className="block text-xs font-bold text-neutral-300 mb-1">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
               {t('Email Address', 'البريد الإلكتروني')}
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1] transition-colors"
               />
             </div>
           </div>
@@ -324,28 +318,28 @@ export const AuthModal: React.FC = () => {
           {authModalMode !== 'forgot_password' && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-neutral-300">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                   {t('Password', 'كلمة المرور')}
                 </label>
                 {authModalMode === 'login' && (
                   <button
                     type="button"
                     onClick={() => { setAuthModalMode('forgot_password'); setError(null); }}
-                    className="text-[11px] text-neutral-400 hover:text-emerald-400 transition-colors cursor-pointer"
+                    className="text-[11px] text-slate-500 hover:text-[#1246DF] dark:hover:text-[#05BCD1] transition-colors cursor-pointer"
                   >
                     {t('Forgot password?', 'نسيت كلمة المرور؟')}
                   </button>
                 )}
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1] transition-colors"
                 />
               </div>
             </div>
@@ -353,18 +347,18 @@ export const AuthModal: React.FC = () => {
 
           {authModalMode === 'register' && (
             <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1">
+              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
                 {t('Confirm Password', 'تأكيد كلمة المرور')}
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="password"
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1] transition-colors"
                 />
               </div>
             </div>
@@ -373,7 +367,7 @@ export const AuthModal: React.FC = () => {
           <button
             type="submit"
             disabled={loading || googleLoading}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 mt-2 cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#1246DF] hover:bg-[#0E38B8] text-white font-bold text-xs sm:text-sm transition-colors disabled:opacity-50 mt-2 cursor-pointer"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -396,7 +390,7 @@ export const AuthModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setAuthModalMode('login'); setError(null); setResetSent(false); }}
-                className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5 rtl:rotate-180" />
                 <span>{t('Back to Sign In', 'العودة لتسجيل الدخول')}</span>
@@ -404,26 +398,6 @@ export const AuthModal: React.FC = () => {
             </div>
           )}
         </form>
-
-        {/* Demo Mode Fallback Button */}
-        {authModalMode !== 'forgot_password' && (
-          <div className="mt-6 pt-4 border-t border-neutral-800 text-center">
-            <p className="text-[11px] text-neutral-400 mb-2">
-              {t('Just exploring Kuwait games and venues?', 'هل ترغب في تصفح الملاعب والمباريات سريعاً؟')}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                continueAsDemo();
-                handleClose();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-xs font-semibold text-neutral-300 hover:text-emerald-400 transition-colors cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{t('Continue with Demo Mode (Ahmed)', 'المتابعة بالحساب التجريبي (أحمد)')}</span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -29,7 +29,10 @@ import {
   CostSharingMethod,
   GameCostSharing,
   getCostSharingMethods,
-  isCostSharingMethodSelected
+  isCostSharingMethodSelected,
+  formatKuwaitMobile,
+  ThemePreference,
+  EffectiveTheme
 } from '../types';
 import { 
   CURRENT_USER, 
@@ -68,6 +71,7 @@ import {
   followPlayerInFirestore,
   unfollowPlayerInFirestore,
   subscribeToUserFollowing,
+  subscribeToUserFollowers,
   sendFriendRequestInFirestore,
   cancelFriendRequestInFirestore,
   acceptFriendRequestInFirestore,
@@ -114,12 +118,17 @@ import {
   deleteCurrentUserAccount,
   reauthenticateCurrentUser,
   checkUsernameAvailability,
-  mapFirebaseAuthError,
   requestPaymentLinkInFirestore,
-  markPaymentLinkRequestHandledInFirestore
+  markPaymentLinkRequestHandledInFirestore,
+  fetchGameWamdDetailsFromFirestore,
+  uploadUserBanner,
+  removeUserBanner,
+  submitPlayerRatingInFirestore,
+  fetchRatingsForGameAndRater
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
+import { resolveGameLocation, coordinatesToLatLng } from '../lib/location';
 
 const GUEST_USER: UserProfile = {
   id: 'guest',
@@ -171,7 +180,7 @@ interface AppContextType {
   registerWithEmail: (email: string, pass: string, displayName: string, area?: KuwaitArea) => Promise<void>;
   loginWithGoogleAuth: () => Promise<void>;
   logout: () => Promise<void>;
-  continueAsDemo: () => void;
+  continueAsDemo: () => Promise<boolean>;
   sendPasswordResetEmailAction: (email: string) => Promise<void>;
   verifyResetCodeAction: (code: string) => Promise<string>;
   confirmResetPasswordAction: (code: string, newPass: string) => Promise<void>;
@@ -184,17 +193,29 @@ interface AppContextType {
   checkUsername: (username: string) => Promise<{ available: boolean; error?: string }>;
 
   // Navigation & filters
-  activeTab: 'home' | 'discover' | 'games' | 'players' | 'profile' | 'admin';
-  setActiveTab: (tab: 'home' | 'discover' | 'games' | 'players' | 'profile' | 'admin') => void;
+  activeTab: 'home' | 'community' | 'discover' | 'map' | 'games' | 'players' | 'profile' | 'admin' | 'book-directly' | 'guidelines';
+  setActiveTab: (tab: 'home' | 'community' | 'discover' | 'map' | 'games' | 'players' | 'profile' | 'admin' | 'book-directly' | 'guidelines') => void;
+  profileSubView: 'profile' | 'settings';
+  setProfileSubView: (view: 'profile' | 'settings') => void;
+  openSettings: () => void;
   selectedArea: KuwaitArea | 'All Kuwait';
   setSelectedArea: (area: KuwaitArea | 'All Kuwait') => void;
   selectedSport: SportType | 'All';
   setSelectedSport: (sport: SportType | 'All') => void;
   language: 'en' | 'ar';
   setLanguage: (lang: 'en' | 'ar') => void;
+  themePreference: ThemePreference;
+  effectiveTheme: EffectiveTheme;
+  setThemePreference: (pref: ThemePreference) => void;
   t: (en: string, ar: string) => string;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (open: boolean) => void;
+  toggleSidebar: () => void;
+  isDesktopSidebarCollapsed: boolean;
+  setIsDesktopSidebarCollapsed: (collapsed: boolean) => void;
+  toggleDesktopSidebar: () => void;
 
   // Active Modals & Pre-fills
   bookingModalOpen: boolean;
@@ -233,6 +254,9 @@ interface AppContextType {
   leaveGame: (gameId: string) => Promise<boolean>;
   sendChatMessage: (gameId: string, text: string, isAnnouncement?: boolean) => Promise<void>;
   followingUserIds: Set<string>;
+  followerUserIds: Set<string>;
+  followersList: UserProfile[];
+  followingList: UserProfile[];
   isFollowingUser: (userId: string) => boolean;
   isFollowActionLoading: (userId: string) => boolean;
   followPlayer: (targetUserId: string) => Promise<void>;
@@ -305,6 +329,13 @@ interface AppContextType {
   requestPaymentLink: (gameId: string) => Promise<PaymentLinkRequest>;
   markPaymentLinkRequestHandled: (gameId: string, requesterId: string) => Promise<void>;
   getPaymentLinkRequests: (gameId: string) => PaymentLinkRequest[];
+  getGameWamdPhoneNumber: (gameId: string) => Promise<string | null>;
+
+  // Profile Banner & 5-Star Ratings (Stage 2)
+  updateUserBanner: (file: File) => Promise<string>;
+  removeUserBannerAction: () => Promise<void>;
+  submitPlayerRating: (gameId: string, targetUserId: string, rating: number, sport?: SportType) => Promise<boolean>;
+  getUserGameRatings: (gameId: string) => Promise<Record<string, number>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -317,6 +348,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [resetPasswordModalOpen, setResetPasswordModalOpen] = useState(false);
   const [resetPasswordActionCode, setResetPasswordActionCode] = useState<string | null>(null);
   const [isDemoActive, setIsDemoActive] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
+
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsedState] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('la3ib_desktop_sidebar_collapsed');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+    } catch {
+      // ignore
+    }
+    return false; // Expanded by default on first visit
+  });
+
+  const setIsDesktopSidebarCollapsed = (collapsed: boolean) => {
+    setIsDesktopSidebarCollapsedState(collapsed);
+    try {
+      localStorage.setItem('la3ib_desktop_sidebar_collapsed', String(collapsed));
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleDesktopSidebar = () => {
+    setIsDesktopSidebarCollapsedState(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('la3ib_desktop_sidebar_collapsed', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // Detect Firebase action URL parameters (e.g. ?mode=resetPassword&oobCode=XYZ)
   useEffect(() => {
@@ -327,10 +393,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => ({
-    ...CURRENT_USER,
-    isDemoUser: true
-  }));
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('la3ib_demo_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...CURRENT_USER,
+          ...parsed,
+          isDemoUser: true
+        };
+      }
+    } catch {
+      // fallback to CURRENT_USER
+    }
+    return {
+      ...CURRENT_USER,
+      isDemoUser: true
+    };
+  });
   const [demoPlayers, setDemoPlayers] = useState<UserProfile[]>(MOCK_PLAYERS);
   const [firestorePlayers, setFirestorePlayers] = useState<UserProfile[]>([]);
   const [isPlayersLoading, setIsPlayersLoading] = useState<boolean>(false);
@@ -357,6 +438,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     return filtered;
   }, [rawFollowingUserIds, blockedUserIds]);
+
+  // Scalable Followers State: Demo Mode vs Cloud Firestore
+  const [demoFollowerIds, setDemoFollowerIds] = useState<Set<string>>(() => new Set(['player-1', 'player-2', 'player-3']));
+  const [firestoreFollowerIds, setFirestoreFollowerIds] = useState<Set<string>>(() => new Set());
+
+  const rawFollowerUserIds = authStatus === 'authenticated' ? firestoreFollowerIds : demoFollowerIds;
+  const followerUserIds = useMemo(() => {
+    const filtered = new Set<string>();
+    rawFollowerUserIds.forEach(id => {
+      if (!blockedUserIds.has(id)) filtered.add(id);
+    });
+    return filtered;
+  }, [rawFollowerUserIds, blockedUserIds]);
 
   // Scalable Friends & Friend Requests State: Demo Mode vs Cloud Firestore
   const [demoFriendIds, setDemoFriendIds] = useState<Set<string>>(() => new Set(['player-3']));
@@ -411,6 +505,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const friendsList = useMemo(() => {
     return rawFriendsList.filter(p => !blockedUserIds.has(p.id) && (p.uid ? !blockedUserIds.has(p.uid) : true));
   }, [rawFriendsList, blockedUserIds]);
+
+
 
   // Game Invites State: Demo Mode vs Cloud Firestore (Step 4)
   const [demoIncomingInvites, setDemoIncomingInvites] = useState<GameInvite[]>(() => [
@@ -505,6 +601,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     return list;
   }, [allKnownPlayers, blockedUserIds]);
+
+  // Following list with full profiles
+  const followingList = useMemo(() => {
+    const list: UserProfile[] = [];
+    followingUserIds.forEach(id => {
+      if (blockedUserIds.has(id)) return;
+      const match = allKnownPlayers.find(p => p.id === id || p.uid === id);
+      if (match) {
+        list.push(match);
+      } else {
+        list.push({
+          id,
+          uid: id,
+          name: `Athlete (${id.slice(0, 6)})`,
+          username: `athlete_${id.slice(0, 5)}`,
+          avatar: DEFAULT_GUEST_AVATAR,
+          area: 'Kuwait City',
+          bio: '',
+          favoriteSports: ['Football'],
+          skills: {},
+          gamesPlayed: 0,
+          gamesHosted: 0,
+          attendanceRate: 100,
+          privacy: { showAge: false, showPhone: false, allowDirectInvites: false }
+        });
+      }
+    });
+    return list;
+  }, [allKnownPlayers, followingUserIds, blockedUserIds]);
+
+  // Followers list with full profiles
+  const followersList = useMemo(() => {
+    const list: UserProfile[] = [];
+    followerUserIds.forEach(id => {
+      if (blockedUserIds.has(id)) return;
+      const match = allKnownPlayers.find(p => p.id === id || p.uid === id);
+      if (match) {
+        list.push(match);
+      } else {
+        list.push({
+          id,
+          uid: id,
+          name: `Athlete (${id.slice(0, 6)})`,
+          username: `athlete_${id.slice(0, 5)}`,
+          avatar: DEFAULT_GUEST_AVATAR,
+          area: 'Kuwait City',
+          bio: '',
+          favoriteSports: ['Football'],
+          skills: {},
+          gamesPlayed: 0,
+          gamesHosted: 0,
+          attendanceRate: 100,
+          privacy: { showAge: false, showPhone: false, allowDirectInvites: false }
+        });
+      }
+    });
+    return list;
+  }, [allKnownPlayers, followerUserIds, blockedUserIds]);
   
   // Data source separation: demoGames for Demo Mode vs firestoreGames for Authenticated Mode
   const [demoGames, setDemoGames] = useState<Game[]>(() => {
@@ -719,6 +873,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
       (err) => {
         console.error('[AppContext] Error in following onSnapshot listener:', err);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [authStatus, firebaseUser?.uid]);
+
+  // Real-time subscription to current user's followers list
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !firebaseUser?.uid) {
+      setFirestoreFollowerIds(new Set());
+      return;
+    }
+
+    console.log('[AppContext] Subscribing to user followers list in Cloud Firestore...');
+    const unsubscribe = subscribeToUserFollowers(
+      firebaseUser.uid,
+      (ids) => {
+        setFirestoreFollowerIds(ids);
+      },
+      (err) => {
+        console.error('[AppContext] Error in followers onSnapshot listener:', err);
       }
     );
 
@@ -1034,10 +1211,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return await checkUsernameAvailability(username, currentUid);
   };
 
-  const continueAsDemo = () => {
-    setIsDemoActive(true);
-    setAuthStatus('demo');
-    setCurrentUser({ ...CURRENT_USER, isDemoUser: true });
+  const continueAsDemo = async (): Promise<boolean> => {
+    try {
+      const isAdmin = await checkIsAdminInFirestore();
+      if (!isAdmin) {
+        console.warn('[AppContext] Unauthorized attempt to access Demo Mode. Access restricted to verified administrators.');
+        return false;
+      }
+      setIsDemoActive(true);
+      setAuthStatus('demo');
+      setCurrentUser({ ...CURRENT_USER, isDemoUser: true });
+      return true;
+    } catch (err) {
+      console.error('[AppContext] Failed to verify admin privileges for Demo Mode:', err);
+      return false;
+    }
   };
   const [myBookings, setMyBookings] = useState<CourtBooking[]>(() => {
     const saved = localStorage.getItem('la3ib_bookings');
@@ -1140,10 +1328,95 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [authStatus, isDemoActive, currentUser.isAdmin]);
 
   // State
-  const [activeTab, setActiveTab] = useState<'home' | 'discover' | 'games' | 'players' | 'profile' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'community' | 'discover' | 'map' | 'games' | 'players' | 'profile' | 'admin' | 'book-directly' | 'guidelines'>('home');
+  const [profileSubView, setProfileSubView] = useState<'profile' | 'settings'>('profile');
+  const openSettings = () => {
+    setActiveTab('profile');
+    setProfileSubView('settings');
+    setSelectedPlayerProfile(null);
+  };
   const [selectedArea, setSelectedArea] = useState<KuwaitArea | 'All Kuwait'>('All Kuwait');
   const [selectedSport, setSelectedSport] = useState<SportType | 'All'>('All');
-  const [language, setLanguage] = useState<'en' | 'ar'>('en');
+  const [language, setLanguageState] = useState<'en' | 'ar'>(() => {
+    try {
+      const saved = localStorage.getItem('la3ib_language');
+      if (saved === 'ar' || saved === 'en') return saved;
+    } catch {
+      // ignore
+    }
+    return 'en';
+  });
+
+  const setLanguage = (lang: 'en' | 'ar') => {
+    setLanguageState(lang);
+    try {
+      localStorage.setItem('la3ib_language', lang);
+      document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+      document.documentElement.lang = lang;
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = language;
+  }, [language]);
+
+  // Appearance / Theme Preference State: 'light' | 'dark' | 'system'
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => {
+    try {
+      const saved = localStorage.getItem('la3ib_theme');
+      if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    } catch {
+      // ignore
+    }
+    return 'system';
+  });
+
+  const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemIsDark(e.matches);
+    };
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  const effectiveTheme: EffectiveTheme = themePreference === 'system'
+    ? (systemIsDark ? 'dark' : 'light')
+    : themePreference;
+
+  const setThemePreference = (pref: ThemePreference) => {
+    setThemePreferenceState(pref);
+    try {
+      localStorage.setItem('la3ib_theme', pref);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    if (effectiveTheme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else {
+      root.classList.remove('dark');
+      root.classList.add('light');
+    }
+    root.style.colorScheme = effectiveTheme;
+  }, [effectiveTheme]);
+
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Modals
@@ -1235,8 +1508,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courtId: court.id,
       courtName: court.name,
       sport: court.sport,
-      area: court.area,
+      area: court.area as KuwaitArea,
       address: court.address,
+      coordinates: court.coordinates || { x: 50, y: 50 },
+      latitude: court.latitude ?? (court.coordinates ? coordinatesToLatLng(court.coordinates).latitude : 29.2731),
+      longitude: court.longitude ?? (court.coordinates ? coordinatesToLatLng(court.coordinates).longitude : 48.0536),
       date: slot.date,
       startTime: slot.startTime,
       endTime: slot.endTime,
@@ -1282,7 +1558,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map(b => b.id === booking.id ? { ...b, hasBeenPostedAsGame: true } : b)
     );
 
-    // Set prefill for Create Game modal
+    // Set prefill for Create Game modal with locked court, sport, and location details
     const defaultMaxPlayers = booking.sport === 'Football' ? 10 : booking.sport === 'Padel' ? 4 : 8;
     const pricePerPlayer = parseFloat((booking.totalCostKWD / defaultMaxPlayers).toFixed(3));
 
@@ -1295,11 +1571,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courtName: booking.courtName,
       area: booking.area,
       address: booking.address,
+      coordinates: booking.coordinates || { x: 50, y: 50 },
+      latitude: booking.latitude,
+      longitude: booking.longitude,
       totalCourtCostKWD: booking.totalCostKWD,
       maxPlayers: defaultMaxPlayers,
       pricePerPlayerKWD: pricePerPlayer,
       isIndoor: booking.isIndoor,
       linkedBookingId: booking.id,
+      bookingRef: booking.bookingRef,
       skillLevel: 'Intermediate',
       gender: 'Everyone',
       visibility: 'Public',
@@ -1318,6 +1598,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const gameId = 'game-' + Date.now();
 
+    const resolvedLoc = resolveGameLocation({
+      coordinates: gameData.coordinates,
+      latitude: gameData.latitude,
+      longitude: gameData.longitude,
+      area: gameData.area,
+      courtName: gameData.courtName,
+      address: gameData.address,
+      locationLabel: gameData.locationLabel
+    });
+
     // If authenticated with real Firebase account, save game directly to Cloud Firestore `games` collection
     if (firebaseUser) {
       await createGameInFirestore(
@@ -1334,6 +1624,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           governorate: gameData.area,
           address: gameData.address,
           location: `${gameData.courtName}, ${gameData.area} (${gameData.address})`,
+          locationLabel: gameData.locationLabel || resolvedLoc.locationLabel,
+          coordinates: resolvedLoc.coordinates,
+          latitude: resolvedLoc.latitude,
+          longitude: resolvedLoc.longitude,
           isIndoor: gameData.isIndoor,
           indoorAC: gameData.isIndoor,
           maxPlayers: gameData.maxPlayers,
@@ -1349,8 +1643,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'Open',
           description: gameData.description,
           linkedBookingId: gameData.linkedBookingId,
+          bookingRef: gameData.bookingRef,
           cancellationPolicy: gameData.cancellationPolicy,
-          coordinates: gameData.coordinates,
         },
         firebaseUser,
         currentUser
@@ -1367,6 +1661,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newGame: Game = {
       ...gameData,
       id: gameId,
+      coordinates: resolvedLoc.coordinates,
+      latitude: resolvedLoc.latitude,
+      longitude: resolvedLoc.longitude,
+      locationLabel: gameData.locationLabel || resolvedLoc.locationLabel,
+      bookingRef: gameData.bookingRef,
       costSharing: gameData.costSharing,
       createdAt: new Date().toISOString(),
       organizer: effectiveOrganizer,
@@ -1388,6 +1687,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setGames(prev => [newGame, ...prev]);
+
+    if (gameData.costSharing?.enabled && isCostSharingMethodSelected(gameData.costSharing, 'wamd') && gameData.costSharing.wamdPhoneNumber) {
+      setDemoWamdNumbers(prev => ({ ...prev, [gameId]: formatKuwaitMobile(gameData.costSharing!.wamdPhoneNumber!) }));
+    }
 
     // Initialize game chat
     setChats(prev => ({
@@ -2108,7 +2411,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             gameDate: targetGame?.date || '',
             gameStartTime: targetGame?.startTime || '',
             gameCourtName: targetGame?.courtName || '',
-            gameArea: targetGame?.area || 'Kuwait City',
+            gameArea: (targetGame?.area as KuwaitArea) || 'Kuwait City',
             gamePricePerPlayerKWD: targetGame?.pricePerPlayerKWD || 0,
             inviterName: currentUser.name,
             inviterAvatar: currentUser.avatar,
@@ -2137,7 +2440,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         gameDate: targetGame?.date || '',
         gameStartTime: targetGame?.startTime || '',
         gameCourtName: targetGame?.courtName || '',
-        gameArea: targetGame?.area || 'Kuwait City',
+        gameArea: (targetGame?.area as KuwaitArea) || 'Kuwait City',
         gamePricePerPlayerKWD: targetGame?.pricePerPlayerKWD || 0,
         inviterName: currentUser.name,
         inviterAvatar: currentUser.avatar,
@@ -2368,6 +2671,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateGame = async (gameId: string, updates: Partial<Game>) => {
+    const target = games.find(g => g.id === gameId) || (myGames && myGames.find(g => g.id === gameId));
+
+    // Li3ib Booking Security: Verify locked court, sport, location, date, and times
+    if (target?.linkedBookingId) {
+      if (updates.date !== undefined && updates.date.trim() !== (target.date || '')) {
+        throw new Error('Date is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.startTime !== undefined && updates.startTime.trim() !== (target.startTime || '')) {
+        throw new Error('Start time is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.endTime !== undefined && updates.endTime.trim() !== (target.endTime || '')) {
+        throw new Error('End time is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.courtName !== undefined && updates.courtName.trim() !== (target.courtName || (target as any).venue)) {
+        throw new Error('Court/Venue name is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.sport !== undefined && updates.sport !== target.sport) {
+        throw new Error('Sport is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.address !== undefined && updates.address.trim() !== (target.address || '')) {
+        throw new Error('Address is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.coordinates !== undefined) {
+        const origCoords = target.coordinates || { x: 50, y: 50 };
+        if (updates.coordinates.x !== origCoords.x || updates.coordinates.y !== origCoords.y) {
+          throw new Error('Location coordinates are locked from the original Li3ib booking and cannot be modified.');
+        }
+      }
+      if (updates.latitude !== undefined && target.latitude !== undefined && updates.latitude !== target.latitude) {
+        throw new Error('Latitude is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.longitude !== undefined && target.longitude !== undefined && updates.longitude !== target.longitude) {
+        throw new Error('Longitude is locked from the original Li3ib booking and cannot be modified.');
+      }
+      if (updates.linkedBookingId !== undefined && updates.linkedBookingId !== target.linkedBookingId) {
+        throw new Error('Li3ib booking reference cannot be altered or detached.');
+      }
+    }
+
     if (authStatus === 'authenticated' && !isDemoActive && firebaseUser) {
       try {
         const updated = await updateGameInFirestore(gameId, updates, firebaseUser.uid);
@@ -2381,9 +2723,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw err;
       }
     } else {
+      let resolvedUpdates: Partial<Game> = { ...updates };
+      if (!target?.linkedBookingId && (updates.coordinates || updates.latitude || updates.longitude)) {
+        const resolved = resolveGameLocation({
+          coordinates: updates.coordinates ?? target?.coordinates,
+          latitude: updates.latitude ?? target?.latitude,
+          longitude: updates.longitude ?? target?.longitude,
+          area: updates.area ?? target?.area,
+          courtName: updates.courtName ?? target?.courtName,
+          address: updates.address ?? target?.address,
+          locationLabel: updates.locationLabel ?? target?.locationLabel
+        });
+        resolvedUpdates.coordinates = resolved.coordinates;
+        resolvedUpdates.latitude = resolved.latitude;
+        resolvedUpdates.longitude = resolved.longitude;
+        resolvedUpdates.locationLabel = updates.locationLabel || resolved.locationLabel;
+      }
+
       setGames(prev =>
-        prev.map(g => (g.id === gameId ? { ...g, ...updates } : g))
+        prev.map(g => (g.id === gameId ? { ...g, ...resolvedUpdates } : g))
       );
+      if (selectedGameForDetail && selectedGameForDetail.id === gameId) {
+        setSelectedGameForDetail(prev => prev ? { ...prev, ...resolvedUpdates } : null);
+      }
+    }
+
+    if (updates.costSharing !== undefined) {
+      if (updates.costSharing.enabled && isCostSharingMethodSelected(updates.costSharing, 'wamd') && updates.costSharing.wamdPhoneNumber) {
+        setDemoWamdNumbers(prev => ({ ...prev, [gameId]: formatKuwaitMobile(updates.costSharing!.wamdPhoneNumber!) }));
+      } else if (!updates.costSharing.enabled || !isCostSharingMethodSelected(updates.costSharing, 'wamd')) {
+        setDemoWamdNumbers(prev => {
+          const next = { ...prev };
+          delete next[gameId];
+          return next;
+        });
+      }
     }
   };
 
@@ -2725,7 +3099,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateCurrentUserProfile = async (updates: Partial<UserProfile>) => {
     // Strip privileged fields that cannot be self-assigned by a normal user
     const { isAdmin: _omitAdmin, role: _omitRole, canOrganize: _omitOrganize, ...safeUpdates } = updates as any;
-    setCurrentUser(prev => ({ ...prev, ...safeUpdates, isAdmin: prev.isAdmin }));
+    setCurrentUser(prev => {
+      const next = { ...prev, ...safeUpdates, isAdmin: prev.isAdmin };
+      if (authStatus !== 'authenticated' || isDemoActive) {
+        try {
+          localStorage.setItem('la3ib_demo_user', JSON.stringify(next));
+        } catch (e) {
+          console.warn('[AppContext] Could not persist demo user to localStorage:', e);
+        }
+      }
+      return next;
+    });
 
     if (authStatus === 'authenticated' && firebaseUser) {
       try {
@@ -3000,6 +3384,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const [demoWamdNumbers, setDemoWamdNumbers] = useState<Record<string, string>>({});
+
+  const handleGetGameWamdPhoneNumber = async (gameId: string): Promise<string | null> => {
+    const targetGame = games.find(g => g.id === gameId) || myGames.find(g => g.id === gameId);
+    if (!targetGame) return null;
+
+    const currentUid = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    const organizerUid = targetGame.organizer?.id || (targetGame as any).organizerId;
+    const isOrg = organizerUid === currentUid;
+    const isParticipant = isOrg || (
+      Array.isArray(targetGame.participantIds) && targetGame.participantIds.includes(currentUid)
+    ) || (
+      Array.isArray(targetGame.participants) && targetGame.participants.some(p => p.userId === currentUid || (p as any).id === currentUid)
+    );
+
+    // Enforce participant-only access (data model & security rule requirement)
+    if (!isParticipant && !currentUser.isAdmin) {
+      return null;
+    }
+
+    if (authStatus === 'authenticated' && !isDemoActive && firebaseUser) {
+      return await fetchGameWamdDetailsFromFirestore(gameId);
+    }
+
+    // Demo Mode
+    return demoWamdNumbers[gameId] || targetGame.costSharing?.wamdPhoneNumber || null;
+  };
+
+  // 5-Star Ratings & Banner Actions (Stage 2)
+  const [demoRatings, setDemoRatings] = useState<Record<string, Record<string, number>>>({});
+
+  const submitPlayerRating = async (
+    gameId: string,
+    targetUserId: string,
+    rating: number,
+    sport?: SportType
+  ): Promise<boolean> => {
+    const raterId = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    if (!raterId || raterId === 'guest') {
+      throw new Error('Please sign in to rate players.');
+    }
+    if (raterId === targetUserId) {
+      throw new Error('You cannot rate yourself.');
+    }
+    const cleanRating = Math.round(Number(rating));
+    if (isNaN(cleanRating) || cleanRating < 1 || cleanRating > 5) {
+      throw new Error('Rating must be between 1 and 5 stars.');
+    }
+
+    setDemoRatings(prev => ({
+      ...prev,
+      [gameId]: {
+        ...(prev[gameId] || {}),
+        [targetUserId]: cleanRating
+      }
+    }));
+
+    if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
+      try {
+        const result = await submitPlayerRatingInFirestore(gameId, raterId, targetUserId, cleanRating, sport);
+        const updateFn = (prev: UserProfile[]) => prev.map(p => {
+          const pUid = p.uid || p.id;
+          if (pUid === targetUserId) {
+            return { ...p, rating: result.ratingAverage, ratingAverage: result.ratingAverage, ratingCount: result.ratingCount };
+          }
+          return p;
+        });
+        setFirestorePlayers(updateFn);
+        setDemoPlayers(updateFn);
+        return true;
+      } catch (err) {
+        console.warn('[Rating] Fallback to local rating state:', err);
+      }
+    }
+
+    // Local / Demo state update
+    const updateLocalFn = (prev: UserProfile[]) => prev.map(p => {
+      const pUid = p.uid || p.id;
+      if (pUid === targetUserId) {
+        const curCount = p.ratingCount ?? (p.rating ? 1 : 0);
+        const curAvg = p.ratingAverage ?? (p.rating || 5);
+        const nextCount = curCount + 1;
+        const nextAvg = Math.round(((curAvg * curCount + cleanRating) / nextCount) * 10) / 10;
+        return { ...p, rating: nextAvg, ratingAverage: nextAvg, ratingCount: nextCount };
+      }
+      return p;
+    });
+    setDemoPlayers(updateLocalFn);
+    setFirestorePlayers(updateLocalFn);
+    return true;
+  };
+
+  const getUserGameRatings = async (gameId: string): Promise<Record<string, number>> => {
+    const raterId = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    if (!raterId || raterId === 'guest') return demoRatings[gameId] || {};
+    if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
+      try {
+        const remote = await fetchRatingsForGameAndRater(gameId, raterId);
+        return { ...(demoRatings[gameId] || {}), ...remote };
+      } catch {
+        return demoRatings[gameId] || {};
+      }
+    }
+    return demoRatings[gameId] || {};
+  };
+
+  const updateUserBanner = async (file: File): Promise<string> => {
+    const uid = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    const bannerUrl = await uploadUserBanner(file, uid);
+    setCurrentUser(prev => {
+      const next = { ...prev, bannerUrl };
+      if (authStatus !== 'authenticated' || isDemoActive) {
+        try {
+          localStorage.setItem('la3ib_demo_user', JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+    return bannerUrl;
+  };
+
+  const removeUserBannerAction = async (): Promise<void> => {
+    const uid = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    await removeUserBanner(uid);
+    setCurrentUser(prev => {
+      const next = { ...prev, bannerUrl: '' };
+      if (authStatus !== 'authenticated' || isDemoActive) {
+        try {
+          localStorage.setItem('la3ib_demo_user', JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -3050,6 +3569,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedSport,
         language,
         setLanguage,
+        themePreference,
+        effectiveTheme,
+        setThemePreference,
         t,
         searchQuery,
         setSearchQuery,
@@ -3080,6 +3602,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leaveGame,
         sendChatMessage,
         followingUserIds,
+        followerUserIds,
+        followersList,
+        followingList,
         isFollowingUser,
         isFollowActionLoading,
         followPlayer,
@@ -3134,7 +3659,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         paymentLinkRequests: demoPaymentLinkRequests,
         requestPaymentLink: handleRequestPaymentLink,
         markPaymentLinkRequestHandled: handleMarkPaymentLinkRequestHandled,
-        getPaymentLinkRequests
+        getPaymentLinkRequests,
+        getGameWamdPhoneNumber: handleGetGameWamdPhoneNumber,
+        profileSubView,
+        setProfileSubView,
+        openSettings,
+        submitPlayerRating,
+        getUserGameRatings,
+        updateUserBanner,
+        removeUserBannerAction,
+        isSidebarOpen,
+        setIsSidebarOpen,
+        toggleSidebar,
+        isDesktopSidebarCollapsed,
+        setIsDesktopSidebarCollapsed,
+        toggleDesktopSidebar
       }}
     >
       {children}

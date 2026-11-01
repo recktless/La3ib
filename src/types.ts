@@ -49,6 +49,9 @@ export type KuwaitArea =
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'demo';
 
+export type ThemePreference = 'light' | 'dark' | 'system';
+export type EffectiveTheme = 'light' | 'dark';
+
 export interface PrivateAccountData {
   email: string;
   phone?: string;
@@ -69,10 +72,17 @@ export interface UserProfile {
   area: KuwaitArea;
   bio: string;
   favoriteSports: SportType[];
+  sports?: SportType[];
   skills: { [key in SportType]?: SkillLevel };
   gamesPlayed: number;
   gamesHosted: number;
-  attendanceRate: number; // e.g. 98 for 98%
+  attendanceRate: number; // Retained for backend compatibility, purged from UI
+  rating?: number;
+  ratingAverage?: number;
+  ratingCount?: number;
+  bannerUrl?: string;
+  reliabilityScore?: number;
+  mvpCount?: number;
   isOrganizer?: boolean;
   canOrganize?: boolean;
   isAdmin?: boolean;
@@ -86,10 +96,26 @@ export interface UserProfile {
     showAge: boolean;
     showPhone: boolean;
     allowDirectInvites: boolean;
+    isPrivateProfile?: boolean;
   };
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface PlayerRating {
+  id: string; // `${gameId}_${raterId}_${targetUserId}`
+  gameId: string;
+  raterId: string;
+  targetUserId: string;
+  rating: number; // 1 to 5
+  sport?: SportType;
+  createdAt: string;
+}
+
+export type PublicPlayerProfile = Omit<UserProfile, 'gamesHosted' | 'attendanceRate'> & {
+  gamesHosted?: number;
+  attendanceRate?: number;
+};
 
 /**
  * Neutral default avatar silhouette SVG for guest accounts with no human face.
@@ -141,6 +167,10 @@ export interface CourtBooking {
   bookedAt: string;
   isIndoor: boolean;
   courtImage: string;
+  coordinates?: { x: number; y: number };
+  latitude?: number;
+  longitude?: number;
+  locationLabel?: string;
   hasBeenPostedAsGame?: boolean;
 }
 
@@ -178,6 +208,31 @@ export interface GameCostSharing {
   method?: CostSharingMethod; // Preserved for backwards compatibility with legacy games
   estimatedShare?: number;
   currency?: string;
+  wamdPhoneNumber?: string; // Host-provided Kuwait mobile number for WAMD
+}
+
+/**
+ * Validates Kuwait mobile numbers:
+ * Accepts standard 8-digit mobile numbers starting with 4, 5, 6, or 9,
+ * with or without +965 / 00965 / 965 prefix, spaces, or hyphens.
+ */
+export function isValidKuwaitMobile(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  return /^(?:\+?965|00965)?[4569]\d{7}$/.test(cleaned);
+}
+
+/**
+ * Standardizes a valid Kuwait mobile number into +965 XXXXXXXX format.
+ */
+export function formatKuwaitMobile(phone: string | null | undefined): string {
+  if (!phone) return '';
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  const match = cleaned.match(/^(?:\+?965|00965)?([4569]\d{7})$/);
+  if (match) {
+    return `+965 ${match[1]}`;
+  }
+  return phone.trim();
 }
 
 /**
@@ -229,9 +284,12 @@ export interface Game {
   startTime: string; // "20:00"
   endTime: string; // "21:30"
   courtName: string;
-  area: KuwaitArea;
+  area: KuwaitArea | string;
   address: string;
   coordinates: { x: number; y: number }; // Relative position on Kuwait map (0 to 100)
+  latitude?: number; // WGS84 Latitude (Kuwait ~28.5 to ~30.1)
+  longitude?: number; // WGS84 Longitude (Kuwait ~46.5 to ~48.5)
+  locationLabel?: string;
   isIndoor: boolean;
   maxPlayers: number;
   organizer: UserProfile;
@@ -250,6 +308,9 @@ export interface Game {
   moderationReason?: string;
   description?: string;
   linkedBookingId?: string;
+  bookingRef?: string;
+  bookingConfirmationUrl?: string;
+  bookingStoragePath?: string;
   createdAt: string;
   cancellationPolicy: string;
 }
@@ -259,7 +320,7 @@ export interface Court {
   name: string;
   nameAr: string;
   sport: SportType;
-  area: KuwaitArea;
+  area: KuwaitArea | string;
   address: string;
   rating: number;
   reviewsCount: number;
@@ -268,6 +329,8 @@ export interface Court {
   image: string;
   amenities: string[];
   coordinates: { x: number; y: number };
+  latitude?: number;
+  longitude?: number;
   availableSlots: {
     id: string;
     date: string;
@@ -471,4 +534,144 @@ export interface GamePayment {
   providerPaymentId?: string;
   providerTransactionId?: string;
 }
+
+/**
+ * Clean localization helpers ensuring pure English in English mode and pure Arabic in Arabic mode.
+ */
+export function getSportLabel(sport: SportType | string, lang: 'en' | 'ar'): string {
+  if (lang === 'ar') {
+    switch (sport) {
+      case 'Football': return 'كرة القدم';
+      case 'Padel': return 'بادل';
+      case 'Basketball': return 'كرة السلة';
+      case 'Volleyball': return 'كرة الطائرة';
+      case 'Tennis': return 'تنس';
+      case 'Badminton': return 'ريشة طائرة';
+      case 'Other': return 'أخرى';
+      default: return sport;
+    }
+  }
+  return sport;
+}
+
+export function getSkillLabel(skill: SkillLevel | string, lang: 'en' | 'ar'): string {
+  if (lang === 'ar') {
+    switch (skill) {
+      case 'Beginner': return 'مبتدئ';
+      case 'Casual': return 'ودي / ترويحي';
+      case 'Intermediate': return 'متوسط';
+      case 'Advanced': return 'متقدم';
+      case 'Competitive': return 'تنافسي عالي';
+      case 'Any level': return 'جميع المستويات';
+      case 'Any': return 'جميع المستويات';
+      default: return skill;
+    }
+  }
+  return skill;
+}
+
+export function getKuwaitAreaLabel(area: string, lang: 'en' | 'ar'): string {
+  if (lang === 'ar') {
+    switch (area) {
+      case 'Kuwait City': return 'مدينة الكويت';
+      case 'Salmiya': return 'السالمية';
+      case 'Shuwaikh': return 'الشويخ';
+      case 'Hawalli': return 'حولي';
+      case 'Mishref': return 'مشرف';
+      case 'Yarmouk': return 'اليرموك';
+      case 'Jabriya': return 'الجابرية';
+      case 'Sabhan': return 'صبحان';
+      case 'Mahboula': return 'المهبولة';
+      case 'Abu Hasaniya': return 'أبو الحصانية';
+      case 'Jahra': return 'الجهراء';
+      case 'Ardhiya': return 'العارضية';
+      case 'All Kuwait': return 'كل الكويت';
+      case 'All Areas': return 'كل المناطق';
+      default: return area;
+    }
+  }
+  return area;
+}
+
+/**
+ * Returns a standardized display label for a player's 5-star rating.
+ * Displays "★ 4.8/5 (12)" or "Not rated yet" / "لم يتم التقييم بعد".
+ */
+export function formatPlayerRating(
+  user?: { rating?: number; ratingAverage?: number; ratingCount?: number } | null,
+  lang: 'en' | 'ar' = 'en'
+): { scoreText: string; countText: string; isRated: boolean; fullLabel: string } {
+  const avg = user?.ratingAverage ?? user?.rating;
+  const count = user?.ratingCount ?? (avg ? 1 : 0);
+
+  if (typeof avg !== 'number' || isNaN(avg) || count <= 0) {
+    const unratedText = lang === 'ar' ? 'لم يتم التقييم بعد' : 'Not rated yet';
+    return {
+      scoreText: '—',
+      countText: '',
+      isRated: false,
+      fullLabel: unratedText
+    };
+  }
+
+  const scoreFormatted = avg.toFixed(1);
+  const countFormatted = lang === 'ar' ? `(${count} تقييم)` : `(${count})`;
+  return {
+    scoreText: scoreFormatted,
+    countText: countFormatted,
+    isRated: true,
+    fullLabel: `★ ${scoreFormatted}/5 ${countFormatted}`.trim()
+  };
+}
+
+/**
+ * Universal Booking Confirmation extraction schema
+ */
+export interface ExtractedBookingData {
+  venueName?: string | null;
+  courtName?: string | null;
+  date?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  area?: string | null;
+  address?: string | null;
+  sport?: SportType | null;
+  totalPriceKWD?: number | null;
+  notes?: string | null;
+  storagePath?: string | null;
+  fileName?: string | null;
+  mimeType?: string | null;
+}
+
+/**
+ * Formats a 24-hour time string (e.g. "20:00") into friendly 12-hour AM/PM format (e.g. "8:00 PM" / "8:00 م").
+ */
+export function formatTime12Hour(time24?: string | null, lang: 'en' | 'ar' = 'en'): string {
+  if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
+  const [hStr, mStr] = time24.split(':');
+  let hour = parseInt(hStr, 10);
+  if (isNaN(hour)) return time24;
+  const rawMinute = mStr ? mStr.replace(/\D/g, '') : '00';
+  const minute = rawMinute.slice(0, 2).padStart(2, '0');
+  const isPM = hour >= 12;
+  if (hour === 0) hour = 12;
+  else if (hour > 12) hour -= 12;
+  const period = lang === 'ar' ? (isPM ? 'م' : 'ص') : (isPM ? 'PM' : 'AM');
+  return `${hour}:${minute} ${period}`;
+}
+
+/**
+ * Formats a start and end time pair into 12-hour format: "8:00 PM – 9:30 PM" (or "8:00 م – 9:30 م" in Arabic).
+ */
+export function formatTimeRange12Hour(
+  startTime?: string | null,
+  endTime?: string | null,
+  lang: 'en' | 'ar' = 'en'
+): string {
+  if (!startTime && !endTime) return '';
+  if (!endTime) return formatTime12Hour(startTime, lang);
+  if (!startTime) return formatTime12Hour(endTime, lang);
+  return `${formatTime12Hour(startTime, lang)} – ${formatTime12Hour(endTime, lang)}`;
+}
+
 

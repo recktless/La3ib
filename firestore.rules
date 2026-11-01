@@ -97,11 +97,14 @@ service cloud.firestore {
           )
         )
         ||
-        // Target player follower, following, or friend count update during atomic follow / unfollow, friend accept, or block
+        // Target player follower, following, friend count, or 5-star rating aggregate update
         (
           isSignedIn()
           && isValidId(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followerCount', 'followingCount', 'friendCount', 'updatedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingAverage', 'ratingCount', 'followerCount', 'followingCount', 'friendCount', 'updatedAt'])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating']) || (request.resource.data.rating is number && request.resource.data.rating >= 1 && request.resource.data.rating <= 5))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ratingAverage']) || (request.resource.data.ratingAverage is number && request.resource.data.ratingAverage >= 1 && request.resource.data.ratingAverage <= 5))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ratingCount']) || (request.resource.data.ratingCount is number && request.resource.data.ratingCount >= 0))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['followerCount']) || (request.resource.data.followerCount is number && request.resource.data.followerCount >= 0))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['followingCount']) || (request.resource.data.followingCount is number && request.resource.data.followingCount >= 0))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['friendCount']) || (request.resource.data.friendCount is number && request.resource.data.friendCount >= 0))
@@ -316,6 +319,18 @@ service cloud.firestore {
           // Cannot reopen or modify a game that has been cancelled or moderated by an admin
           resource.data.status != 'Cancelled' &&
           (!('moderated' in resource.data) || resource.data.moderated != true) &&
+          // Li3ib Booking Security: Locked court, sport, address, coordinates, date, and times cannot be changed
+          (
+            !('linkedBookingId' in resource.data) ||
+            resource.data.linkedBookingId == null ||
+            resource.data.linkedBookingId == '' ||
+            (
+              request.resource.data.linkedBookingId == resource.data.linkedBookingId &&
+              (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                'courtName', 'venue', 'sport', 'address', 'coordinates', 'latitude', 'longitude', 'date', 'startTime', 'endTime'
+              ]))
+            )
+          ) &&
           (!('maxPlayers' in request.resource.data) || (
             request.resource.data.maxPlayers is number &&
             request.resource.data.maxPlayers >= 2 &&
@@ -653,6 +668,46 @@ service cloud.firestore {
           isAdmin()
         );
       }
+
+      // Cost Sharing Details Subcollection (/games/{gameId}/costSharingDetails/{detailId})
+      // Enforces participant-only access to sensitive host payment info (e.g. WAMD phone number)
+      match /costSharingDetails/{detailId} {
+        function getGameData() {
+          return get(/databases/$(database)/documents/games/$(gameId)).data;
+        }
+
+        function isGameOrganizer() {
+          let g = getGameData();
+          return isSignedIn() && (
+            (('organizerId' in g) && g.organizerId == request.auth.uid) ||
+            (('organizer' in g) && ('id' in g.organizer) && g.organizer.id == request.auth.uid)
+          );
+        }
+
+        function isParticipant() {
+          let g = getGameData();
+          return isSignedIn() && (
+            isGameOrganizer() ||
+            isAdmin() ||
+            (('participantIds' in g) && (request.auth.uid in g.participantIds))
+          );
+        }
+
+        // Read: Only joined participants, the game host, or admin
+        allow read: if isParticipant();
+
+        // Create/Update: Only the host or Admin can save or update WAMD details
+        allow create, update: if isSignedIn() && (isGameOrganizer() || isAdmin())
+          && isValidId(detailId)
+          && request.resource.data.gameId == gameId
+          && (!('wamdPhoneNumber' in request.resource.data) || (
+            request.resource.data.wamdPhoneNumber is string &&
+            request.resource.data.wamdPhoneNumber.size() <= 30
+          ));
+
+        // Delete: Host or Admin
+        allow delete: if isSignedIn() && (isGameOrganizer() || isAdmin());
+      }
     }
 
     // Game Participants Collection
@@ -775,6 +830,24 @@ service cloud.firestore {
         && isValidId(request.resource.data.targetId)
         && request.resource.data.createdAt is string;
       allow update, delete: if false;
+    }
+
+    // Player Ratings Collection (/ratings/{ratingId})
+    // ratingId must be formatted as: {gameId}_{raterId}_{targetUserId}
+    // Rater cannot rate themselves, rating must be integer 1 to 5, and rating doc is unique per match pair.
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.raterId
+        && request.resource.data.raterId != request.resource.data.targetUserId
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && isValidId(request.resource.data.gameId)
+        && isValidId(request.resource.data.targetUserId)
+        && request.resource.data.createdAt is string
+        && ratingId == request.resource.data.gameId + '_' + request.resource.data.raterId + '_' + request.resource.data.targetUserId;
+      allow update, delete: if isAdmin();
     }
 
     // Payments Collection

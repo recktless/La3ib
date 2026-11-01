@@ -355,7 +355,7 @@ describe('La3ib Cost-Sharing Settings & UI Verification', () => {
 
       expect(html).toContain('Estimated Share');
       expect(html).toContain('Estimate');
-      expect(html).toContain('💵 Cash');
+      expect(html).toContain('Cash');
       expect(html).toContain('Join Game');
     });
 

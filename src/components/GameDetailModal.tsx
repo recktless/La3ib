@@ -25,10 +25,27 @@ import {
   Search,
   Check,
   RotateCcw,
-  Link2
+  Link2,
+  Copy,
+  ExternalLink,
+  Navigation
 } from 'lucide-react';
 import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary, subscribeToPaymentLinkRequestsForGame } from '../lib/firebase';
-import { ChatMessage, GameInvite, ReportReason, resolvePlayerAvatar, PaymentLinkRequest, getCostSharingMethods, isCostSharingMethodSelected } from '../types';
+import { 
+  ChatMessage, 
+  GameInvite, 
+  ReportReason, 
+  resolvePlayerAvatar, 
+  PaymentLinkRequest, 
+  getCostSharingMethods, 
+  isCostSharingMethodSelected,
+  getSportLabel,
+  getSkillLabel,
+  getKuwaitAreaLabel,
+  formatPlayerRating,
+  formatTimeRange12Hour
+} from '../types';
+import { resolveGameLocation, formatLatLngDisplay } from '../lib/location';
 
 const GAME_REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'inappropriate_behavior', en: 'Inappropriate or offensive behavior', ar: 'سلوك مسيء أو غير لائق' },
@@ -40,11 +57,14 @@ const GAME_REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'other', en: 'Other reason', ar: 'سبب آخر' },
 ];
 
-export const GameDetailModal: React.FC = () => {
+export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'organizer' }> = ({
+  initialTab = 'details'
+}) => {
   const { 
     selectedGameForDetail, 
     setSelectedGameForDetail, 
     setSelectedGameForJoin,
+    setSelectedPlayerProfile,
     games,
     myGames,
     currentUser, 
@@ -71,10 +91,12 @@ export const GameDetailModal: React.FC = () => {
     requestPaymentLink,
     markPaymentLinkRequestHandled,
     getPaymentLinkRequests,
+    getGameWamdPhoneNumber,
+    language,
     t 
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'details' | 'chat' | 'organizer'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'chat' | 'organizer'>(initialTab);
   const [chatInput, setChatInput] = useState('');
   const [announcementInput, setAnnouncementInput] = useState('');
   const [showAnnouncementBox, setShowAnnouncementBox] = useState(false);
@@ -91,13 +113,28 @@ export const GameDetailModal: React.FC = () => {
   const [isCancelling, setIsCancelling] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [paymentLinkRequested, setPaymentLinkRequested] = useState(false);
-  const [paymentLinkRequests, setPaymentLinkRequests] = useState<PaymentLinkRequest[]>([]);
+  const [paymentLinkRequests, setPaymentLinkRequests] = useState<PaymentLinkRequest[]>(() => {
+    const gId = selectedGameForDetail?.id;
+    if (gId && typeof getPaymentLinkRequests === 'function') {
+      try {
+        return getPaymentLinkRequests(gId) || [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
   const [isRequestingLink, setIsRequestingLink] = useState(false);
   const [linkRequestFeedback, setLinkRequestFeedback] = useState<string | null>(null);
   const [linkRequestError, setLinkRequestError] = useState<string | null>(null);
   const [handlingRequesterId, setHandlingRequesterId] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // WAMD Phone Number State for Joined Participants & Host
+  const [wamdPhoneNumber, setWamdPhoneNumber] = useState<string | null>(null);
+  const [isWamdLoading, setIsWamdLoading] = useState(false);
+  const [wamdCopied, setWamdCopied] = useState(false);
 
   // Invite Players Modal State
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -155,6 +192,46 @@ export const GameDetailModal: React.FC = () => {
     )
   );
   const isParticipant = isOrganizer || isJoined;
+
+  // Real-time or authorized fetch of WAMD phone number
+  useEffect(() => {
+    let isCancelled = false;
+    if (game?.id && game.costSharing?.enabled && isCostSharingMethodSelected(game.costSharing, 'wamd') && isParticipant) {
+      if (typeof getGameWamdPhoneNumber === 'function') {
+        setIsWamdLoading(true);
+        getGameWamdPhoneNumber(game.id)
+          .then(phone => {
+            if (!isCancelled) setWamdPhoneNumber(phone);
+          })
+          .catch(() => {
+            if (!isCancelled) setWamdPhoneNumber(null);
+          })
+          .finally(() => {
+            if (!isCancelled) setIsWamdLoading(false);
+          });
+      } else {
+        setWamdPhoneNumber(game.costSharing?.wamdPhoneNumber || null);
+      }
+    } else {
+      setWamdPhoneNumber(null);
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [game?.id, game?.costSharing?.enabled, isParticipant, getGameWamdPhoneNumber]);
+
+  const handleCopyWamdNumber = (phone: string | null) => {
+    if (!phone) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(phone);
+      }
+    } catch (e) {
+      console.warn('Failed to copy to clipboard', e);
+    }
+    setWamdCopied(true);
+    setTimeout(() => setWamdCopied(false), 2000);
+  };
 
   // Real-time subscription to payment link requests for this game
   useEffect(() => {
@@ -437,28 +514,28 @@ export const GameDetailModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 overflow-y-auto">
       <div 
-        className="relative w-full max-w-3xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92vh]"
+        className="relative w-full max-w-3xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92dvh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">
-              {game.sport === 'Football' ? '⚽' : game.sport === 'Padel' ? '🎾' : game.sport === 'Basketball' ? '🏀' : '🏆'}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#BFDBFE] dark:border-[#22304E] bg-[#EEF4FF] dark:bg-[#0B1120]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-xs font-black text-[#1246DF] dark:text-[#05BCD1] uppercase tracking-wider bg-white dark:bg-[#1B253D] border border-[#BFDBFE] dark:border-[#2A3B5C] px-2.5 py-0.5 rounded-full shrink-0">
+              {getSportLabel(game.sport, language)}
             </span>
-            <div>
-              <h2 className="text-base sm:text-lg font-extrabold text-white truncate max-w-md">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate max-w-[170px] sm:max-w-xs md:max-w-md">
                 {game.title}
               </h2>
-              <p className="text-xs text-neutral-400">
-                {game.courtName} • <span className="text-emerald-400 font-semibold">{game.area}</span>
+              <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                {game.courtName} • <span className="text-[#1246DF] dark:text-[#05BCD1] font-semibold">{getKuwaitAreaLabel(game.area, language)}</span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => {
                 setReportDetails('');
@@ -466,28 +543,28 @@ export const GameDetailModal: React.FC = () => {
                 setReportFeedback(null);
                 setShowReportForm(true);
               }}
-              className="p-2 rounded-full hover:bg-neutral-800 text-neutral-500 hover:text-red-400 transition-colors"
-              title="Report Game"
+              className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-[#1B253D] text-slate-400 hover:text-rose-500 transition-colors"
+              title={t('Report Game', 'الإبلاغ عن المباراة')}
             >
               <ShieldAlert className="w-4 h-4" />
             </button>
             <button 
               onClick={() => setSelectedGameForDetail(null)}
-              className="p-2 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white"
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         {/* Tab switcher: Details & Roster vs Game Chat vs Organizer Panel */}
-        <div className="flex border-b border-neutral-800 bg-neutral-950/60 px-6">
+        <div className="flex border-b border-slate-200 dark:border-[#22304E] bg-slate-100/60 dark:bg-[#0B1120] px-3 sm:px-6 overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('details')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all ${
+            className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors ${
               activeTab === 'details'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-neutral-400 hover:text-white'
+                ? 'border-[#1246DF] dark:border-[#05BCD1] text-[#1246DF] dark:text-[#05BCD1]'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {t('Details & Roster', 'التفاصيل وقائمة اللاعبين')} ({game.participants.length}/{game.maxPlayers})
@@ -495,16 +572,16 @@ export const GameDetailModal: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('chat')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+            className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'chat'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-neutral-400 hover:text-white'
+                ? 'border-[#1246DF] dark:border-[#05BCD1] text-[#1246DF] dark:text-[#05BCD1]'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>{t('Game Chat', 'شات المباراة')}</span>
             {gameChat.length > 0 && (
-              <span className="text-[10px] bg-neutral-800 text-neutral-300 px-1.5 py-0.2 rounded-full">
+              <span className="text-[10px] bg-slate-200 dark:bg-[#1B253D] text-slate-700 dark:text-slate-300 px-1.5 py-0.2 rounded-full font-bold">
                 {gameChat.length}
               </span>
             )}
@@ -513,16 +590,16 @@ export const GameDetailModal: React.FC = () => {
           {isOrganizer && (
             <button
               onClick={() => setActiveTab('organizer')}
-              className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
                 activeTab === 'organizer'
-                  ? 'border-amber-500 text-amber-400'
-                  : 'border-transparent text-neutral-400 hover:text-amber-300'
+                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-300'
               }`}
             >
               <Settings className="w-3.5 h-3.5" />
               <span>{t('Organizer Dashboard', 'لوحة المنظم المالية')}</span>
               {paymentLinkRequests.filter(r => r.status === 'pending').length > 0 && (
-                <span className="ms-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-neutral-950 font-black text-[10px]">
+                <span className="ms-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white font-bold text-[10px]">
                   {paymentLinkRequests.filter(r => r.status === 'pending').length}
                 </span>
               )}
@@ -532,12 +609,12 @@ export const GameDetailModal: React.FC = () => {
 
         {/* Success notification banner if match cancellation succeeds */}
         {actionSuccess && (
-          <div className="mx-6 mt-4 p-3 bg-emerald-950/80 border border-emerald-800 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-300 animate-in fade-in">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="mx-6 mt-4 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center gap-2.5 text-xs text-emerald-800 dark:text-emerald-200">
+            <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="flex-1 font-semibold">{actionSuccess}</span>
             <button
               onClick={() => setActionSuccess(null)}
-              className="text-emerald-400 hover:text-white text-xs font-bold px-2 py-0.5"
+              className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-white text-xs font-bold px-2 py-0.5"
             >
               ✕
             </button>
@@ -546,15 +623,15 @@ export const GameDetailModal: React.FC = () => {
 
         {/* Error notification banner if leave or cancel action fails */}
         {(actionError || leaveError) && (
-          <div className="mx-6 mt-4 p-3 bg-red-950/80 border border-red-800 rounded-2xl flex items-center gap-2.5 text-xs text-red-300 animate-in fade-in">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <div className="mx-6 mt-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-xl flex items-center gap-2.5 text-xs text-rose-800 dark:text-rose-200">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
             <span className="flex-1 font-semibold">{actionError || leaveError}</span>
             <button
               onClick={() => {
                 setActionError(null);
                 setLeaveError(null);
               }}
-              className="text-red-400 hover:text-white text-xs font-bold px-2 py-0.5"
+              className="text-rose-600 dark:text-rose-400 hover:text-rose-800 dark:hover:text-white text-xs font-bold px-2 py-0.5"
             >
               ✕
             </button>
@@ -566,85 +643,227 @@ export const GameDetailModal: React.FC = () => {
           {/* TAB 1: DETAILS & ROSTER */}
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {/* Venue Location & Navigation Card */}
+              {(() => {
+                const loc = resolveGameLocation(game);
+                const isLi3ib = Boolean(game.linkedBookingId);
+                return (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                          <MapPin className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                              {game.courtName}
+                            </h4>
+                            {isLi3ib && (
+                              <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800/80 flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5" />
+                                {t('Linked Booking', 'حجز مرتبط')}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {game.address || loc.locationLabel}
+                          </p>
+                        </div>
+                      </div>
+
+                      <a
+                        href={loc.mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-[#131C31] hover:bg-slate-100 dark:hover:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] text-xs font-bold text-[#1246DF] dark:text-[#05BCD1] transition-colors self-start sm:self-auto cursor-pointer"
+                      >
+                        <Navigation className="w-3.5 h-3.5" />
+                        <span>{t('Open in Maps', 'فتح في الخرائط')}</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-200 dark:border-[#22304E] text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="font-mono text-[#1246DF] dark:text-[#05BCD1] flex items-center gap-1">
+                        <span>📍</span>
+                        <span>{formatLatLngDisplay(loc.latitude, loc.longitude)}</span>
+                      </span>
+                      {isLi3ib ? (
+                        <span className="text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-amber-500" />
+                          {t('Court & location locked to venue reservation', 'الملعب والموقع مقفلان وفق حجز الملعب')}
+                          {game.bookingRef ? ` (${game.bookingRef})` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500">
+                          {t('Interactive Kuwait Map Pin', 'نقطة محددة على خريطة الكويت')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Meta Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-neutral-950 p-4 rounded-2xl border border-neutral-800">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-[#0B1120] p-4 rounded-xl border border-slate-200 dark:border-[#22304E]">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Date', 'التاريخ')}</span>
-                  <span className="text-xs font-bold text-white mt-0.5 block">{game.date}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">{t('Date', 'التاريخ')}</span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white mt-0.5 block">{game.date}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Time', 'الوقت')}</span>
-                  <span className="text-xs font-bold text-white mt-0.5 block">{game.startTime} - {game.endTime}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">{t('Time', 'الوقت')}</span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white mt-0.5 block">{formatTimeRange12Hour(game.startTime, game.endTime, language)}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
                   {game.costSharing?.enabled ? (
-                    <span className="text-xs font-black text-emerald-400 mt-0.5 block">
+                    <span className="text-xs font-bold text-[#1246DF] dark:text-[#05BCD1] mt-0.5 block">
                       {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)} KWD
-                      <span className="text-[9px] text-neutral-400 ms-1 font-normal">({t('Est.', 'تقديري')})</span>
+                      <span className="text-[9px] text-slate-500 dark:text-slate-400 ms-1 font-normal">({t('Est.', 'تقديري')})</span>
                     </span>
                   ) : (
-                    <span className="text-xs font-bold text-neutral-400 mt-0.5 block">
-                      {t('None (Free)', 'غير مفعل (مجاني)')}
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5 block">
+                      {t('Free', 'مجاني')}
                     </span>
                   )}
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block">{t('Skill & Gender', 'المستوى')}</span>
-                  <span className="text-xs font-bold text-white mt-0.5 block">{game.skillLevel} • {game.gender}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">{t('Skill & Gender', 'المستوى')}</span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white mt-0.5 block">
+                    {getSkillLabel(game.skillLevel, language)} • {game.gender === 'Men' ? t('Men Only', 'رجال فقط') : game.gender === 'Women' ? t('Women Only', 'نساء فقط') : t('Everyone', 'الجميع')}
+                  </span>
                 </div>
               </div>
 
               {/* Cost Sharing Details: Displayed ONLY when cost sharing is enabled */}
               {game.costSharing?.enabled && (
-                <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-emerald-400" />
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                      <DollarSign className="w-4 h-4 text-[#1246DF] dark:text-[#05BCD1]" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                         {t('Cost Sharing Settings', 'إعدادات تقاسم التكلفة')}
                       </h4>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 text-[#1246DF] dark:text-[#05BCD1] border border-[#1246DF]/20 dark:border-[#05BCD1]/30">
                       {t('Split with Players', 'مفعل مع اللاعبين')}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="bg-neutral-900/80 p-3 rounded-xl border border-neutral-800/80">
-                      <span className="text-[10px] text-neutral-400 uppercase font-bold block mb-1">
+                    <div className="bg-white dark:bg-[#131C31] p-3 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">
                         {t('Accepted Methods', 'طرق الدفع المتاحة')}
                       </span>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
                         {getCostSharingMethods(game.costSharing).map(m => (
-                          <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-neutral-800 text-white text-xs font-bold border border-neutral-700">
-                            {m === 'cash' && <>💵 {t('Cash', 'نقداً')} <span className="text-[10px] text-neutral-400 font-normal">({t('Pay host outside app', 'الدفع للمنظم خارج التطبيق')})</span></>}
-                            {m === 'wamd' && <>⚡ {t('WAMD', 'ومض')} <span className="text-[10px] text-neutral-400 font-normal">({t('Pay host via WAMD', 'الدفع للمنظم عبر ومض')})</span></>}
-                            {m === 'request_link' && <>🔗 {t('Request Link', 'طلب رابط دفع')} <span className="text-[10px] text-neutral-400 font-normal">({t('Request from host', 'طلب من المنظم')})</span></>}
+                          <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#0D1C68] text-slate-800 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-[#1F3590]">
+                            {m === 'cash' && <>{t('Cash', 'نقداً')} <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">({t('Pay host outside app', 'الدفع للمنظم خارج التطبيق')})</span></>}
+                            {m === 'wamd' && <>{t('WAMD', 'ومض')} <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">({t('Pay host via WAMD', 'الدفع للمنظم عبر ومض')})</span></>}
+                            {m === 'request_link' && <>{t('Request Link', 'طلب رابط دفع')} <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">({t('Request from host', 'طلب من المنظم')})</span></>}
                           </span>
                         ))}
                       </div>
                     </div>
 
-                    <div className="bg-neutral-900/80 p-3 rounded-xl border border-neutral-800/80">
-                      <span className="text-[10px] text-neutral-400 uppercase font-bold block mb-1">
+                    <div className="bg-white dark:bg-[#131C31] p-3 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">
                         {t('Estimated Share per Player', 'الحصة التقديرية لكل لاعب')}
                       </span>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-sm font-black text-emerald-400">
+                        <span className="text-sm font-bold text-[#1246DF] dark:text-[#05BCD1]">
                           {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}
                         </span>
-                        <span className="text-xs font-bold text-emerald-400">KWD</span>
-                        <span className="text-[10px] text-neutral-400 ms-1">({t('Estimate', 'تقديري')})</span>
+                        <span className="text-xs font-bold text-[#1246DF] dark:text-[#05BCD1]">KWD</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 ms-1">({t('Estimate', 'تقديري')})</span>
                       </div>
                     </div>
                   </div>
 
+                  {/* WAMD Payment Details: Displayed ONLY to joined participants or host when WAMD is enabled */}
+                  {isCostSharingMethodSelected(game.costSharing, 'wamd') && (
+                    <div className="p-3 bg-white dark:bg-[#131C31] rounded-xl border border-slate-200 dark:border-[#22304E] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
+                            {t('Host WAMD Details', 'بيانات ومض للمنظم')}
+                          </span>
+                        </div>
+                        {isParticipant ? (
+                          <span className="text-[10px] font-bold text-[#1246DF] dark:text-[#05BCD1] px-1.5 py-0.2 rounded bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 border border-[#1246DF]/20 dark:border-[#05BCD1]/30">
+                            {t('Joined Participant Access', 'متاح للمنضمين')}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-slate-400" />
+                            {t('Visible after joining', 'يظهر بعد الانضمام')}
+                          </span>
+                        )}
+                      </div>
+
+                      {isParticipant ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-[#0B1120] rounded-xl border border-slate-200 dark:border-[#22304E]">
+                            <div>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">
+                                {t('WAMD Phone Number', 'رقم هاتف ومض')}
+                              </span>
+                              <span className="text-sm font-bold text-slate-900 dark:text-white font-mono tracking-wide">
+                                {isWamdLoading ? (
+                                  <span className="text-xs text-slate-500 flex items-center gap-1">
+                                    <Loader2 className="w-3 h-3 animate-spin" /> {t('Loading...', 'جارٍ التحميل...')}
+                                  </span>
+                                ) : (
+                                  wamdPhoneNumber || game.costSharing?.wamdPhoneNumber || t('Not provided', 'غير متوفر')
+                                )}
+                              </span>
+                            </div>
+
+                            {(wamdPhoneNumber || game.costSharing?.wamdPhoneNumber) && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyWamdNumber(wamdPhoneNumber || game.costSharing?.wamdPhoneNumber || '')}
+                                className="px-3 py-1.5 rounded-lg bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                              >
+                                {wamdCopied ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-white" />
+                                    <span>{t('Copied!', 'تم النسخ!')}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-white" />
+                                    <span>{t('Copy Number', 'نسخ الرقم')}</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            ℹ️ {t(
+                              'Number provided by the host. Not a verified payment account. Transfer directly via your bank\'s WAMD service outside La3ib.',
+                              'الرقم مزود من قبل منظم المباراة. ليس حساب دفع معتمد. قم بالتحويل مباشرة عبر خدمة ومض من تطبيق بنكك خارج لعيب.'
+                            )}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                          {t(
+                            'Join this game to view the host\'s WAMD phone number for payment.',
+                            'انضم إلى هذه المباراة للاطلاع على رقم هاتف ومض الخاص بالمنظم لتحويل المبلغ.'
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Request Payment Link Action for eligible participants when Request Link is selected */}
                   {isCostSharingMethodSelected(game.costSharing, 'request_link') && isJoined && !isOrganizer && (
-                    <div className="pt-2 border-t border-neutral-800/80 space-y-2">
+                    <div className="pt-2 border-t border-slate-200 dark:border-[#22304E] space-y-2">
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                        <p className="text-[11px] text-neutral-400">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
                           {t(
                             'You are joined in this match. Request a payment link directly from the host.',
                             'أنت مشارك في هذه المباراة. يمكنك طلب رابط الدفع مباشرة من منظم المباراة.'
@@ -654,10 +873,10 @@ export const GameDetailModal: React.FC = () => {
                           type="button"
                           onClick={handleRequestLink}
                           disabled={isLinkRequested || isRequestingLink}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:cursor-not-allowed ${
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 disabled:cursor-not-allowed ${
                             isLinkRequested
-                              ? 'bg-emerald-950 border border-emerald-600 text-emerald-300'
-                              : 'bg-sky-500 hover:bg-sky-400 text-neutral-950 shadow-md shadow-sky-500/20'
+                              ? 'bg-slate-100 dark:bg-[#1B253D] border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+                              : 'bg-[#1246DF] hover:bg-[#0e37b3] text-white'
                           }`}
                         >
                           {isRequestingLink ? (
@@ -667,22 +886,22 @@ export const GameDetailModal: React.FC = () => {
                           )}
                           <span>
                             {isLinkRequested 
-                              ? t('Payment Link Requested ✓', 'تم طلب رابط الدفع ✓') 
+                              ? t('Request Pending', 'الطلب معلق') 
                               : t('Request Payment Link', 'طلب رابط دفع')}
                           </span>
                         </button>
                       </div>
 
                       {linkRequestFeedback && (
-                        <div className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-800 text-xs text-emerald-300 flex items-center gap-2">
-                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <span>{linkRequestFeedback}</span>
                         </div>
                       )}
 
                       {linkRequestError && (
-                        <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-800 text-xs text-rose-300 flex items-center gap-2">
-                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 flex items-center gap-2">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                           <span>{linkRequestError}</span>
                         </div>
                       )}
@@ -693,37 +912,46 @@ export const GameDetailModal: React.FC = () => {
 
               {/* Description */}
               {game.description && (
-                <div className="bg-neutral-950/60 p-4 rounded-2xl border border-neutral-800/80">
-                  <span className="text-[10px] uppercase font-bold text-neutral-400 block mb-1">
+                <div className="bg-slate-50 dark:bg-[#0B1120] p-4 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
                     {t('Organizer Message', 'ملاحظات المنظم')}
                   </span>
-                  <p className="text-xs text-neutral-200 leading-relaxed">
+                  <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
                     {game.description}
                   </p>
                 </div>
               )}
 
               {/* Organizer Card */}
-              <div className="flex items-center justify-between p-3.5 bg-neutral-950 rounded-2xl border border-neutral-800">
+              <div 
+                onClick={() => {
+                  const organizerUser = players.find(p => p.id === game.organizer.id || p.uid === game.organizer.id) || game.organizer;
+                  setSelectedPlayerProfile(organizerUser);
+                }}
+                className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100 dark:bg-[#0B1120] dark:hover:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] transition-colors cursor-pointer group"
+                role="button"
+                tabIndex={0}
+                title={t('View organizer profile', 'عرض ملف المنظم')}
+              >
                 <div className="flex items-center gap-3">
                   <img 
                     src={resolvePlayerAvatar(game.organizer)} 
                     alt={game.organizer.name}
-                    className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/40"
+                    className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-200 dark:ring-slate-700 group-hover:ring-[#1246DF] dark:group-hover:ring-[#05BCD1] transition-all"
                   />
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-white">{game.organizer.name}</span>
-                      <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.2 rounded font-semibold">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-[#1246DF] dark:group-hover:text-[#05BCD1] transition-colors">{game.organizer.name}</span>
+                      <span className="text-[10px] bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 text-[#1246DF] dark:text-[#05BCD1] border border-[#1246DF]/20 dark:border-[#05BCD1]/30 px-1.5 py-0.2 rounded font-semibold">
                         {t('Host', 'المنظم')}
                       </span>
                     </div>
-                    <p className="text-[11px] text-neutral-400">
-                      @{game.organizer.username} • {game.organizer.attendanceRate}% {t('Attendance', 'حضور')}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      @{game.organizer.username} • {formatPlayerRating(game.organizer, language).fullLabel}
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-semibold text-neutral-400">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {game.organizer.gamesHosted} {t('hosted', 'مباريات مستضافة')}
                 </span>
               </div>
@@ -731,7 +959,7 @@ export const GameDetailModal: React.FC = () => {
               {/* Player Roster Section */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
                     {t('Player Roster', 'قائمة اللاعبين')}
                   </h4>
                   <div className="flex items-center gap-2">
@@ -742,13 +970,13 @@ export const GameDetailModal: React.FC = () => {
                           setInviteError(null);
                           setShowInviteModal(true);
                         }}
-                        className="px-2.5 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        className="px-2.5 py-1 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
                         <span>{t('Invite Players', 'دعوة لاعبين')}</span>
                       </button>
                     )}
-                    <span className="text-xs font-bold text-emerald-400">
+                    <span className="text-xs font-bold text-[#1246DF] dark:text-[#05BCD1]">
                       {game.participants.length} / {game.maxPlayers} {t('Confirmed', 'مؤكد')}
                     </span>
                   </div>
@@ -756,54 +984,83 @@ export const GameDetailModal: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {/* Confirmed Players */}
-                  {game.participants.map((player, idx) => (
-                    <div 
-                      key={player.userId + idx}
-                      className="flex items-center justify-between p-3 rounded-xl bg-neutral-950 border border-neutral-800"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <img 
-                          src={resolvePlayerAvatar(player as any)} 
-                          alt={player.name}
-                          className="w-8 h-8 rounded-full object-cover ring-1 ring-neutral-700"
-                        />
-                        <div>
-                          <p className="text-xs font-bold text-white flex items-center gap-1.5">
-                            <span>{player.name}</span>
-                            {player.userId === game.organizer.id && (
-                              <span className="text-[9px] text-amber-400 bg-amber-950/60 px-1 rounded">Host</span>
-                            )}
-                          </p>
-                          <p className="text-[10px] text-neutral-500">{player.skill || t('Athlete', 'رياضي')}</p>
+                  {game.participants.map((player, idx) => {
+                    const handleOpenParticipantProfile = () => {
+                      const matched = players.find(p => p.id === player.userId || p.uid === player.userId);
+                      const isCurrentUser = player.userId === (currentUser.uid || currentUser.id);
+                      const profileToOpen = isCurrentUser 
+                        ? currentUser 
+                        : (matched || {
+                            id: player.userId,
+                            uid: player.userId,
+                            name: player.name,
+                            username: (player as any).username || player.name.toLowerCase().replace(/\s+/g, '_'),
+                            avatar: player.avatar || '',
+                            area: 'Kuwait City',
+                            bio: '',
+                            favoriteSports: [game.sport],
+                            skills: player.skill ? { [game.sport]: player.skill } : {},
+                            gamesPlayed: 1,
+                            gamesHosted: 0,
+                            attendanceRate: 100,
+                            privacy: { showAge: false, showPhone: false, allowDirectInvites: false }
+                          });
+                      setSelectedPlayerProfile(profileToOpen);
+                    };
+
+                    return (
+                      <div 
+                        key={player.userId + idx}
+                        onClick={handleOpenParticipantProfile}
+                        className="flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-[#0B1120] dark:hover:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] transition-colors cursor-pointer group"
+                        role="button"
+                        tabIndex={0}
+                        title={t('View player profile', 'عرض ملف اللاعب')}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <img 
+                            src={resolvePlayerAvatar(player as any)} 
+                            alt={player.name}
+                            className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 group-hover:ring-[#1246DF] dark:group-hover:ring-[#05BCD1] transition-all"
+                          />
+                          <div>
+                            <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 group-hover:text-[#1246DF] dark:group-hover:text-[#05BCD1] transition-colors">
+                              <span>{player.name}</span>
+                              {player.userId === game.organizer.id && (
+                                <span className="text-[9px] text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1 rounded">{t('Host', 'المنظم')}</span>
+                              )}
+                            </p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">{player.skill ? getSkillLabel(player.skill, language) : t('Athlete', 'رياضي')}</p>
+                          </div>
+                        </div>
+
+                        {/* Participant Status */}
+                        <div className="text-right">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>{t('Confirmed', 'مؤكد')}</span>
+                          </span>
+                          <span className="text-[9px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                            {player.skill || t('Joined', 'مشترك')}
+                          </span>
                         </div>
                       </div>
-
-                      {/* Participant Status */}
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800">
-                          <Check className="w-3 h-3 text-emerald-400" />
-                          <span>{t('Confirmed', 'مؤكد')}</span>
-                        </span>
-                        <span className="text-[9px] text-neutral-500 block mt-0.5">
-                          {player.skill || t('Joined', 'مشترك')}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Empty Spots */}
                   {Array.from({ length: Math.max(0, spotsLeft) }).map((_, i) => (
                     <div 
                       key={'empty-' + i}
-                      className="flex items-center justify-between p-3 rounded-xl bg-neutral-950/40 border border-dashed border-neutral-800/80 text-neutral-500"
+                      className="flex items-center justify-between p-3 rounded-xl bg-slate-50/50 dark:bg-[#0B1120]/40 border border-dashed border-slate-300 dark:border-[#22304E] text-slate-500 dark:text-slate-400"
                     >
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-neutral-900 border border-dashed border-neutral-700 flex items-center justify-center text-xs font-bold">
+                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-[#1B253D] border border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
                           {game.participants.length + i + 1}
                         </div>
                         <span className="text-xs font-semibold">{t('Open Spot', 'مكان شاغر')}</span>
                       </div>
-                      <span className="text-[11px] font-semibold text-emerald-400/70">
+                      <span className="text-[11px] font-semibold text-[#1246DF] dark:text-[#05BCD1]">
                         {game.costSharing?.enabled 
                           ? `~${(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)} KWD` 
                           : t('Free Spot', 'مكان مجاني')}
@@ -821,14 +1078,14 @@ export const GameDetailModal: React.FC = () => {
               {/* Authenticated Mode: Access protection for non-participants */}
               {authStatus === 'authenticated' && !isDemoActive && !isParticipant ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4 max-w-sm mx-auto">
-                  <div className="w-12 h-12 rounded-2xl bg-neutral-800 border border-neutral-700 text-neutral-400 flex items-center justify-center">
-                    <Lock className="w-6 h-6 text-emerald-400" />
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] text-slate-500 dark:text-slate-400 flex items-center justify-center">
+                    <Lock className="w-6 h-6 text-[#1246DF] dark:text-[#05BCD1]" />
                   </div>
                   <div className="space-y-1.5">
-                    <h4 className="text-base font-bold text-white">
+                    <h4 className="text-base font-bold text-slate-900 dark:text-white">
                       {t('Game Chat is for Confirmed Players', 'شات المباراة مخصص للمشاركين فقط')}
                     </h4>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                       {t(
                         'Join this match to coordinate team jerseys, arrival time, parking, and chat with fellow players in real time.',
                         'انضم إلى هذه المباراة للتنسيق مع باقي اللاعبين ومناقشة تفاصيل الحضور وألوان الملابس في الشات المباشر.'
@@ -849,7 +1106,7 @@ export const GameDetailModal: React.FC = () => {
                           setActionError(err?.message || 'Failed to join match');
                         }
                       }}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold text-xs transition-colors cursor-pointer shadow-lg shadow-emerald-500/20"
+                      className="px-5 py-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white font-bold text-xs transition-colors cursor-pointer"
                     >
                       {t('Join Match to Access Chat', 'انضم للمباراة لتفعيل الشات')}
                     </button>
@@ -863,31 +1120,31 @@ export const GameDetailModal: React.FC = () => {
                       {!showAnnouncementBox ? (
                         <button
                           onClick={() => setShowAnnouncementBox(true)}
-                          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-amber-950/40 hover:bg-amber-950/60 border border-amber-800/50 text-amber-300 text-xs font-bold transition-colors cursor-pointer"
+                          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
                         >
-                          <Megaphone className="w-4 h-4 text-amber-400" />
+                          <Megaphone className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                           <span>{t('Broadcast Organizer Announcement', 'إرسال إعلان هام لجميع اللاعبين')}</span>
                         </button>
                       ) : (
-                        <form onSubmit={handleSendAnnouncement} className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl space-y-2">
-                          <div className="flex justify-between items-center text-xs font-bold text-amber-300">
+                        <form onSubmit={handleSendAnnouncement} className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-2">
+                          <div className="flex justify-between items-center text-xs font-bold text-amber-900 dark:text-amber-200">
                             <span>{t('Pinned Announcement', 'إعلان مثبت')}</span>
-                            <button type="button" onClick={() => setShowAnnouncementBox(false)} className="text-neutral-400 cursor-pointer">✕</button>
+                            <button type="button" onClick={() => setShowAnnouncementBox(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
                           </div>
                           <input 
                             type="text"
                             value={announcementInput}
                             onChange={(e) => setAnnouncementInput(e.target.value)}
-                            placeholder="e.g. Guys, please arrive 15 minutes early at Gate 3..."
-                            className="w-full bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                            placeholder={t('e.g. Please arrive 15 minutes early...', 'مثال: يرجى الحضور قبل الموعد بـ 15 دقيقة...')}
+                            className="w-full bg-white dark:bg-[#0B1120] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white"
                             disabled={isSendingMessage}
                           />
                           <button 
                             type="submit" 
                             disabled={isSendingMessage || !announcementInput.trim()}
-                            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-neutral-950 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                            className="px-3 py-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
                           >
-                            {isSendingMessage ? t('Posting...', 'جاري النشر...') : t('Post Announcement', 'نشر الإعلان')}
+                            {isSendingMessage ? t('Posting...', 'جارٍ النشر...') : t('Post Announcement', 'نشر الإعلان')}
                           </button>
                         </form>
                       )}
@@ -896,23 +1153,23 @@ export const GameDetailModal: React.FC = () => {
 
                   {/* Chat Error Banner */}
                   {chatError && (
-                    <div className="mb-2 p-2.5 bg-red-950/60 border border-red-800 rounded-xl text-xs text-red-300 flex items-center gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <div className="mb-2 p-2.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                       <span className="flex-1">{chatError}</span>
-                      <button onClick={() => setChatError(null)} className="text-red-400 hover:text-white text-xs">✕</button>
+                      <button onClick={() => setChatError(null)} className="text-rose-600 dark:text-rose-400 hover:text-rose-800 text-xs">✕</button>
                     </div>
                   )}
 
                   {/* Chat Message Stream */}
                   <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                     {isChatLoading ? (
-                      <div className="flex flex-col items-center justify-center py-16 text-neutral-400 gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
-                        <span className="text-xs">{t('Loading real-time chat messages...', 'جاري تحميل رسائل الشات المباشرة...')}</span>
+                      <div className="flex flex-col items-center justify-center py-16 text-slate-500 dark:text-slate-400 gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin text-[#1246DF] dark:text-[#05BCD1]" />
+                        <span className="text-xs">{t('Loading real-time chat messages...', 'جارٍ تحميل رسائل الشات المباشرة...')}</span>
                       </div>
                     ) : gameChat.length === 0 ? (
-                      <div className="text-center py-14 text-neutral-500 text-xs space-y-1">
-                        <MessageSquare className="w-8 h-8 text-neutral-700 mx-auto mb-1" />
+                      <div className="text-center py-14 text-slate-500 dark:text-slate-400 text-xs space-y-1">
+                        <MessageSquare className="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-1" />
                         <p>{t('No messages yet. Say salam to the team!', 'لا توجد رسائل بعد. سلم على الشباب!')}</p>
                       </div>
                     ) : (
@@ -928,20 +1185,20 @@ export const GameDetailModal: React.FC = () => {
                               <img 
                                 src={avatar} 
                                 alt={msg.senderName}
-                                className="w-7 h-7 rounded-full object-cover shrink-0 mt-1 ring-1 ring-neutral-700"
+                                className="w-7 h-7 rounded-full object-cover shrink-0 mt-1 ring-1 ring-slate-200 dark:ring-slate-700"
                               />
                             )}
                             <div 
                               className={`max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed ${
                                 msg.isAnnouncement
-                                  ? 'bg-amber-950/80 border border-amber-800 text-amber-200'
+                                  ? 'bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
                                   : isMe
-                                  ? 'bg-emerald-600 text-white rounded-tr-none'
-                                  : 'bg-neutral-800 text-neutral-200 rounded-tl-none'
+                                  ? 'bg-[#1246DF] text-white rounded-tr-none'
+                                  : 'bg-slate-100 dark:bg-[#1B253D] text-slate-800 dark:text-slate-200 rounded-tl-none'
                               }`}
                             >
                               <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className={`font-bold text-[10px] ${msg.isAnnouncement ? 'text-amber-400' : isMe ? 'text-emerald-200' : 'text-neutral-400'}`}>
+                                <span className={`font-bold text-[10px] ${msg.isAnnouncement ? 'text-amber-700 dark:text-amber-400' : isMe ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'}`}>
                                   {msg.senderName}
                                 </span>
                                 <span className="text-[9px] opacity-70">{msg.timestamp}</span>
@@ -956,22 +1213,22 @@ export const GameDetailModal: React.FC = () => {
                   </div>
 
                   {/* Chat Input Bar */}
-                  <form onSubmit={handleSendMessage} className="pt-3 mt-2 border-t border-neutral-800 flex gap-2">
+                  <form onSubmit={handleSendMessage} className="pt-3 mt-2 border-t border-slate-200 dark:border-[#22304E] flex gap-2">
                     <input 
                       type="text"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       placeholder={t('Message the match group (parking, jerseys, arrival)...', 'اكتب رسالة للمجموعة (المواقف، الملابس، الوصول)...')}
-                      className="flex-1 bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none"
+                      className="flex-1 bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#1246DF] dark:focus:border-[#05BCD1] rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
                       disabled={isSendingMessage}
                     />
                     <button
                       type="submit"
                       disabled={isSendingMessage || !chatInput.trim()}
-                      className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-neutral-950 font-bold transition-colors cursor-pointer flex items-center justify-center"
+                      className="p-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] disabled:opacity-40 text-white font-bold transition-colors cursor-pointer flex items-center justify-center"
                     >
                       {isSendingMessage ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-neutral-950" />
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
                       ) : (
                         <Send className="w-4 h-4" />
                       )}
@@ -986,34 +1243,34 @@ export const GameDetailModal: React.FC = () => {
           {activeTab === 'organizer' && isOrganizer && (
             <div className="space-y-6">
               {/* Cost Sharing & Booking Overview */}
-              <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+              <div className="p-5 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   {t('Court Booking & Cost-Sharing Summary', 'ملخص حجز الملعب وتقاسم التكلفة')}
                 </h4>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="bg-neutral-900 p-3 rounded-xl">
-                    <span className="text-[10px] text-neutral-400 block">{t('Court Cost', 'تكلفة الملعب')}</span>
-                    <span className="text-sm font-black text-white">{game.totalCourtCostKWD.toFixed(3)} KWD</span>
+                  <div className="bg-white dark:bg-[#131C31] p-3 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">{t('Court Cost', 'تكلفة الملعب')}</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">{game.totalCourtCostKWD.toFixed(3)} KWD</span>
                   </div>
-                  <div className="bg-neutral-900 p-3 rounded-xl">
-                    <span className="text-[10px] text-neutral-400 block">{t('Players Joined', 'اللاعبين المسجلين')}</span>
-                    <span className="text-sm font-black text-white">{game.participants.length}/{game.maxPlayers}</span>
+                  <div className="bg-white dark:bg-[#131C31] p-3 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">{t('Players Joined', 'اللاعبين المسجلين')}</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">{game.participants.length}/{game.maxPlayers}</span>
                   </div>
-                  <div className="bg-neutral-900 p-3 rounded-xl">
-                    <span className="text-[10px] text-neutral-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
-                    <span className="text-sm font-black text-emerald-400">
+                  <div className="bg-white dark:bg-[#131C31] p-3 rounded-xl border border-slate-200 dark:border-[#22304E]">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                    <span className="text-sm font-bold text-[#3A60AA] dark:text-[#B9C9E0]">
                       {game.costSharing?.enabled 
-                        ? getCostSharingMethods(game.costSharing).map(m => m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Request Link', '🔗 طلب رابط')).join(', ') 
+                        ? getCostSharingMethods(game.costSharing).map(m => m === 'cash' ? t('Cash', 'نقداً') : m === 'wamd' ? t('WAMD', 'ومض') : t('Request Link', 'طلب رابط')).join(', ') 
                         : t('Disabled (Free)', 'غير مفعل')}
                     </span>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-neutral-900/60 border border-neutral-800 text-xs text-neutral-300">
+                <div className="p-3 rounded-xl bg-white dark:bg-[#0D1C68] border border-slate-200 dark:border-[#1F3590] text-xs text-slate-600 dark:text-[#B9C9E0]">
                   {game.costSharing?.enabled ? (
                     <span>
-                      ℹ️ {t(
+                      {t(
                         'Cost sharing is enabled. Estimated share is based on the court fee. Settlements are made directly outside La3ib; La3ib does not process, verify, or hold payments.',
                         'تقاسم التكلفة مفعل. الحصة التقديرية مبنية على تكلفة الملعب. تتم التسوية مباشرة خارج تطبيق لعيب؛ لا يقوم التطبيق بمعالجة أو التحقق من المدفوعات.'
                       )}
@@ -1031,26 +1288,26 @@ export const GameDetailModal: React.FC = () => {
 
               {/* Payment Link Requests Management for Host */}
               {game.costSharing?.enabled && isCostSharingMethodSelected(game.costSharing, 'request_link') && (
-                <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+                <div className="p-5 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Link2 className="w-4 h-4 text-sky-400" />
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+                      <Link2 className="w-4 h-4 text-[#1246DF] dark:text-[#05BCD1]" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                         {t('Payment Link Requests', 'طلبات روابط الدفع')}
                       </h4>
                     </div>
                     {paymentLinkRequests.filter(r => r.status === 'pending').length > 0 ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
                         {paymentLinkRequests.filter(r => r.status === 'pending').length} {t('Pending', 'معلق')}
                       </span>
                     ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                         {t('All Handled ✓', 'تم التعامل مع الكل ✓')}
                       </span>
                     )}
                   </div>
 
-                  <p className="text-[11px] text-neutral-400">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     {t(
                       'Participants who joined and requested a payment link. Message them in game chat to share your payment link, then mark as handled.',
                       'اللاعبون المنضمون الذين طلبوا رابط دفع. تواصل معهم عبر شات المباراة لتزويدهم بالرابط ثم حدد الطلب كمنجز.'
@@ -1058,7 +1315,7 @@ export const GameDetailModal: React.FC = () => {
                   </p>
 
                   {paymentLinkRequests.length === 0 ? (
-                    <div className="p-4 bg-neutral-900/60 rounded-xl text-center text-xs text-neutral-500 border border-neutral-800/60">
+                    <div className="p-4 bg-white dark:bg-[#131C31] rounded-xl text-center text-xs text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#22304E]">
                       {t('No payment link requests received yet.', 'لم يتم استلام أي طلبات روابط دفع بعد.')}
                     </div>
                   ) : (
@@ -1066,32 +1323,32 @@ export const GameDetailModal: React.FC = () => {
                       {paymentLinkRequests.map((req) => (
                         <div
                           key={req.id}
-                          className="p-3 bg-neutral-900 rounded-xl border border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                          className="p-3 bg-white dark:bg-[#131C31] rounded-xl border border-slate-200 dark:border-[#22304E] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                         >
                           <div className="flex items-center gap-2.5">
                             {req.requesterAvatar ? (
                               <img
                                 src={req.requesterAvatar}
                                 alt={req.requesterName}
-                                className="w-8 h-8 rounded-full object-cover ring-1 ring-neutral-700"
+                                className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"
                               />
                             ) : (
-                              <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs font-bold text-neutral-300">
+                              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-700 dark:text-slate-200">
                                 {req.requesterName.charAt(0)}
                               </div>
                             )}
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-white">{req.requesterName}</span>
+                                <span className="text-xs font-bold text-slate-900 dark:text-white">{req.requesterName}</span>
                                 <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                                   req.status === 'pending'
-                                    ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                                    : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                    ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                                    : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                                 }`}>
                                   {req.status === 'pending' ? t('Pending', 'معلق') : t('Handled ✓', 'تم التعامل ✓')}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-neutral-400">
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400">
                                 {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : t('Recent', 'حديث')}
                               </span>
                             </div>
@@ -1104,9 +1361,9 @@ export const GameDetailModal: React.FC = () => {
                                 setActiveTab('chat');
                                 setChatInput(`@${req.requesterName} `);
                               }}
-                              className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                              className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                             >
-                              <MessageSquare className="w-3 h-3 text-emerald-400" />
+                              <MessageSquare className="w-3 h-3 text-[#1246DF] dark:text-[#05BCD1]" />
                               <span>{t('Chat with Player', 'مراسلة في الشات')}</span>
                             </button>
 
@@ -1115,7 +1372,7 @@ export const GameDetailModal: React.FC = () => {
                                 type="button"
                                 onClick={() => handleMarkHandled(req.requesterId)}
                                 disabled={handlingRequesterId === req.requesterId}
-                                className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
+                                className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg bg-[#1246DF] hover:bg-[#0e37b3] text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
                               >
                                 {handlingRequesterId === req.requesterId ? (
                                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -1135,7 +1392,7 @@ export const GameDetailModal: React.FC = () => {
 
               {/* Organizer Controls */}
               <div className="space-y-3">
-                <h5 className="text-xs font-bold text-neutral-300 uppercase">
+                <h5 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
                   {t('Match Administration', 'إدارة وتعديل المباراة')}
                 </h5>
                 <div className="flex flex-wrap gap-2">
@@ -1147,7 +1404,7 @@ export const GameDetailModal: React.FC = () => {
                         setCreateGameModalOpen(true);
                         setSelectedGameForDetail(null);
                       }}
-                      className="py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <Settings className="w-3.5 h-3.5" />
                       <span>{t('Edit Match & Cost Sharing', 'تعديل المباراة وتقاسم التكلفة')}</span>
@@ -1161,7 +1418,7 @@ export const GameDetailModal: React.FC = () => {
                         setInviteError(null);
                         setShowInviteModal(true);
                       }}
-                      className="py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      className="py-2.5 px-4 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
                       <span>{t('Invite Players', 'دعوة لاعبين')}</span>
@@ -1170,7 +1427,7 @@ export const GameDetailModal: React.FC = () => {
                   <button
                     onClick={handleCancelGame}
                     disabled={isCancelling || game.status === 'Cancelled'}
-                    className="py-2.5 px-4 rounded-xl bg-red-950/50 hover:bg-red-900/60 border border-red-800/60 text-red-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    className="py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     {isCancelling && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>{game.status === 'Cancelled' ? t('Match Cancelled', 'المباراة ملغاة') : t('Cancel Match', 'إلغاء المباراة')}</span>
@@ -1182,51 +1439,62 @@ export const GameDetailModal: React.FC = () => {
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 border-t border-neutral-800 bg-neutral-950 flex items-center justify-between gap-4">
+        <div className="px-6 py-4 border-t border-slate-200 dark:border-[#22304E] bg-slate-50 dark:bg-[#0B1120] flex items-center justify-between gap-4">
           <div>
             {game.costSharing?.enabled ? (
               <div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-neutral-400 block uppercase font-bold">{t('Estimated Share', 'حصة تقديرية')}</span>
-                  <span className="text-[9px] text-neutral-500">({t('Estimate', 'تقديري')})</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">{t('Estimated Share', 'حصة تقديرية')}</span>
+                  <span className="text-[9px] text-slate-400">({t('Estimate', 'تقديري')})</span>
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-xl font-black text-white">{(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}</span>
-                  <span className="text-xs font-bold text-emerald-400">KWD</span>
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">{(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}</span>
+                  <span className="text-xs font-bold text-[#1246DF] dark:text-[#05BCD1]">KWD</span>
                   {getCostSharingMethods(game.costSharing).map(m => (
-                    <span key={m} className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
-                      {m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Link', '🔗 رابط')}
+                    <span key={m} className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF3F9] dark:bg-[#142578] text-[#06135B] dark:text-[#B9C9E0] border border-[#B9C9E0] dark:border-[#1F3590]">
+                      {m === 'cash' ? t('Cash', 'نقداً') : m === 'wamd' ? t('WAMD', 'ومض') : t('Payment Link', 'رابط الدفع')}
                     </span>
                   ))}
                 </div>
               </div>
             ) : (
               <div>
-                <span className="text-[10px] text-neutral-400 block uppercase font-bold">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
-                <span className="text-sm font-extrabold text-neutral-300">{t('Disabled (Free)', 'غير مفعل (مجاني)')}</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase font-bold">{t('Cost Sharing', 'تقاسم التكلفة')}</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('None (Free)', 'مجاني')}</span>
               </div>
             )}
           </div>
 
           <div className="flex items-center gap-2">
             {game.status === 'Cancelled' ? (
-              <div className="px-5 py-2.5 rounded-xl bg-red-950/80 border border-red-800 text-red-300 text-xs font-bold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400" />
+              <div className="px-5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                 <span>{t('Match Cancelled', 'المباراة ملغاة')}</span>
               </div>
             ) : isOrganizer ? (
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
+                  onClick={() => {
+                    setCreateGamePrefill(game);
+                    setCreateGameModalOpen(true);
+                  }}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] border border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>{t('Edit Settings', 'تعديل')}</span>
+                </button>
+                <button
                   onClick={handleCancelGame}
                   disabled={isCancelling}
-                  className="px-4 py-2.5 rounded-xl bg-red-950/70 hover:bg-red-900/80 border border-red-800 hover:border-red-700 text-red-300 hover:text-white text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-sm"
+                  className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {isCancelling && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isCancelling ? t('Cancelling...', 'جارِ الإلغاء...') : t('Cancel Match', 'إلغاء المباراة')}</span>
+                  <span>{isCancelling ? t('Cancelling...', 'جارٍ الإلغاء...') : t('Cancel Match', 'إلغاء المباراة')}</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('chat')}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-black transition-colors cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors cursor-pointer"
                 >
                   {t('Open Chat', 'فتح الشات')}
                 </button>
@@ -1238,10 +1506,10 @@ export const GameDetailModal: React.FC = () => {
                     type="button"
                     onClick={handleRequestLink}
                     disabled={isLinkRequested || isRequestingLink}
-                    className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:cursor-not-allowed ${
+                    className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed ${
                       isLinkRequested
-                        ? 'bg-emerald-950 border border-emerald-600 text-emerald-300'
-                        : 'bg-sky-500 hover:bg-sky-400 text-neutral-950 shadow-md shadow-sky-500/20'
+                        ? 'bg-slate-100 dark:bg-[#1B253D] border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+                        : 'bg-[#1246DF] hover:bg-[#0e37b3] text-white'
                     }`}
                   >
                     {isRequestingLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
@@ -1255,14 +1523,14 @@ export const GameDetailModal: React.FC = () => {
                 <button
                   onClick={handleLeaveGame}
                   disabled={isLeaving}
-                  className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-red-950/70 border border-neutral-700 hover:border-red-800 text-neutral-300 hover:text-red-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-[#1B253D] dark:hover:bg-rose-950/70 border border-slate-200 dark:border-[#22304E] hover:border-rose-300 dark:hover:border-rose-800 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isLeaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isLeaving ? t('Leaving...', 'جارِ المغادرة...') : t('Leave Match', 'مغادرة المباراة')}</span>
+                  <span>{isLeaving ? t('Leaving...', 'جارٍ المغادرة...') : t('Leave Match', 'مغادرة المباراة')}</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('chat')}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-black transition-colors cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors cursor-pointer"
                 >
                   {t('Open Chat', 'فتح الشات')}
                 </button>
@@ -1270,7 +1538,7 @@ export const GameDetailModal: React.FC = () => {
             ) : spotsLeft <= 0 ? (
               <button
                 disabled
-                className="px-6 py-2.5 rounded-xl bg-neutral-800 text-neutral-500 text-xs font-bold cursor-not-allowed"
+                className="px-6 py-2.5 rounded-xl bg-slate-200 dark:bg-[#1B253D] text-slate-400 dark:text-slate-500 text-xs font-bold cursor-not-allowed"
               >
                 {t('Game Full', 'المباراة ممتلئة')}
               </button>
@@ -1292,12 +1560,12 @@ export const GameDetailModal: React.FC = () => {
                   }
                 }}
                 disabled={isJoining}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 disabled:opacity-50 text-neutral-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer transition-transform transform active:scale-95"
+                className="px-6 py-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] disabled:opacity-50 text-white text-xs font-bold cursor-pointer transition-colors"
               >
                 {isJoining ? (
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>{t('Joining...', 'جارِ الانضمام...')}</span>
+                    <span>{t('Joining...', 'جارٍ الانضمام...')}</span>
                   </span>
                 ) : (
                   t('Join Game', 'انضم للمباراة')
@@ -1310,30 +1578,30 @@ export const GameDetailModal: React.FC = () => {
         {/* Reporting Modal overlay (Step 6) */}
         {showReportForm && (
           <div 
-            className="absolute inset-0 z-40 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+            className="absolute inset-0 z-40 bg-slate-950/70 flex items-center justify-center p-4 overflow-y-auto"
             onClick={handleCloseReportForm}
           >
             <div 
-              className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-auto"
+              className="bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-5 sm:p-6 max-w-md w-full space-y-4 my-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center pb-3 border-b border-neutral-800">
+              <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-[#22304E]">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                     <ShieldAlert className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-extrabold text-white text-sm">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">
                       {t('Report Game / Organizer', 'الإبلاغ عن المباراة أو المنظم')}
                     </h4>
-                    <p className="text-[11px] text-neutral-400 truncate max-w-[200px]">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
                       {game.title}
                     </p>
                   </div>
                 </div>
                 <button 
                   onClick={handleCloseReportForm} 
-                  className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1B253D] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1342,8 +1610,8 @@ export const GameDetailModal: React.FC = () => {
               {reportFeedback && (
                 <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
                   reportFeedback.includes('submitted') || reportFeedback.includes('بنجاح')
-                    ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
-                    : 'bg-red-950/80 border border-red-800/80 text-red-300'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                    : 'bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200'
                 }`}>
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{reportFeedback}</span>
@@ -1352,7 +1620,7 @@ export const GameDetailModal: React.FC = () => {
 
               <form onSubmit={handleReport} className="space-y-4">
                 <div>
-                  <label className="text-xs font-bold text-neutral-300 block mb-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
                     {t('Why are you reporting this game?', 'ما هو سبب الإبلاغ عن هذه المباراة؟')}
                   </label>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
@@ -1361,8 +1629,8 @@ export const GameDetailModal: React.FC = () => {
                         key={r.key} 
                         className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
                           selectedReportReason === r.key 
-                            ? 'bg-emerald-950/40 border-emerald-700/80 text-emerald-300 font-semibold' 
-                            : 'bg-neutral-950/80 border-neutral-800/80 text-neutral-300 hover:border-neutral-700'
+                            ? 'bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 border-[#1246DF] dark:border-[#05BCD1] text-[#1246DF] dark:text-[#05BCD1] font-semibold' 
+                            : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -1371,7 +1639,7 @@ export const GameDetailModal: React.FC = () => {
                             name="game_report_reason" 
                             checked={selectedReportReason === r.key}
                             onChange={() => setSelectedReportReason(r.key)}
-                            className="text-emerald-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            className="text-[#1246DF] focus:ring-0"
                           />
                           <span>{t(r.en, r.ar)}</span>
                         </div>
@@ -1381,7 +1649,7 @@ export const GameDetailModal: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-neutral-300 block mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
                     {t('Details (Optional):', 'تفاصيل إضافية (اختياري):')}
                   </label>
                   <textarea
@@ -1390,26 +1658,26 @@ export const GameDetailModal: React.FC = () => {
                     value={reportDetails}
                     onChange={(e) => setReportDetails(e.target.value)}
                     placeholder={t('Tell us more about the issue...', 'اشرح المشكلة بالتفصيل...')}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#1246DF] dark:focus:border-[#05BCD1]"
                   />
-                  <span className="text-[10px] text-neutral-500 block text-right">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block text-right">
                     {reportDetails.length}/1000
                   </span>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-800">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-[#22304E]">
                   <button 
                     type="button"
                     onClick={handleCloseReportForm} 
                     disabled={isSubmittingReport}
-                    className="px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold transition-colors cursor-pointer"
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
                   >
                     {t('Cancel', 'إلغاء')}
                   </button>
                   <button 
                     type="submit" 
                     disabled={isSubmittingReport}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {isSubmittingReport ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1426,22 +1694,22 @@ export const GameDetailModal: React.FC = () => {
 
         {/* Invite Players Modal overlay (Step 4) */}
         {showInviteModal && (
-          <div className="absolute inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="absolute inset-0 z-30 bg-slate-950/70 flex items-center justify-center p-4">
             <div 
-              className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-6 max-w-lg w-full max-h-[85vh] flex flex-col space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+              className="bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-5 sm:p-6 max-w-lg w-full max-h-[85vh] flex flex-col space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#22304E]">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-xl bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
                     <UserPlus className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm sm:text-base font-extrabold text-white">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
                       {t('Invite Players to Match', 'دعوة لاعبين للمباراة')}
                     </h3>
-                    <p className="text-[11px] text-neutral-400">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       {game.title} • {spotsLeft > 0 ? `${spotsLeft} ${t('spots left', 'أماكن شاغرة')}` : t('Game Full', 'المباراة ممتلئة')}
                     </p>
                   </div>
@@ -1449,7 +1717,7 @@ export const GameDetailModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="p-2 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1457,27 +1725,27 @@ export const GameDetailModal: React.FC = () => {
 
               {/* Error notice */}
               {inviteError && (
-                <div className="p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-xs text-red-300 flex items-center justify-between">
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between">
                   <span>{inviteError}</span>
-                  <button onClick={() => setInviteError(null)} className="text-red-400 hover:text-red-200">✕</button>
+                  <button onClick={() => setInviteError(null)} className="text-rose-600 dark:text-rose-400">✕</button>
                 </div>
               )}
 
               {/* Search & Filter Controls */}
               <div className="space-y-2.5">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={inviteSearchQuery}
                     onChange={(e) => setInviteSearchQuery(e.target.value)}
                     placeholder={t('Search by player name, username, or area...', 'ابحث باسم اللاعب، اسم المستخدم، أو المنطقة...')}
-                    className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none"
+                    className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#1246DF] dark:focus:border-[#05BCD1] rounded-xl pl-9 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
                   />
                   {inviteSearchQuery && (
                     <button
                       onClick={() => setInviteSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white text-xs"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                     >
                       ✕
                     </button>
@@ -1489,10 +1757,10 @@ export const GameDetailModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setInviteFilter('all')}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
                       inviteFilter === 'all'
-                        ? 'bg-emerald-500 text-neutral-950'
-                        : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                        ? 'bg-[#1246DF] text-white'
+                        : 'bg-slate-100 dark:bg-[#0B1120] hover:bg-slate-200 dark:hover:bg-[#1B253D] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#22304E]'
                     }`}
                   >
                     {t('All Players', 'جميع اللاعبين')}
@@ -1501,10 +1769,10 @@ export const GameDetailModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setInviteFilter('friends')}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                       inviteFilter === 'friends'
-                        ? 'bg-emerald-500 text-neutral-950'
-                        : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                        ? 'bg-[#1246DF] text-white'
+                        : 'bg-slate-100 dark:bg-[#0B1120] hover:bg-slate-200 dark:hover:bg-[#1B253D] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#22304E]'
                     }`}
                   >
                     <UserCheck className="w-3 h-3" />
@@ -1515,10 +1783,10 @@ export const GameDetailModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setInviteFilter('following')}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                       inviteFilter === 'following'
-                        ? 'bg-emerald-500 text-neutral-950'
-                        : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
+                        ? 'bg-[#1246DF] text-white'
+                        : 'bg-slate-100 dark:bg-[#0B1120] hover:bg-slate-200 dark:hover:bg-[#1B253D] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#22304E]'
                     }`}
                   >
                     <Users className="w-3 h-3" />
@@ -1529,7 +1797,7 @@ export const GameDetailModal: React.FC = () => {
               </div>
 
               {/* Player List */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 divide-y divide-neutral-800/40">
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 divide-y divide-slate-200 dark:divide-[#22304E]">
                 {(() => {
                   const activeInvites = authStatus === 'authenticated'
                     ? firestoreInvitesMap
@@ -1559,8 +1827,8 @@ export const GameDetailModal: React.FC = () => {
 
                   if (eligiblePlayers.length === 0) {
                     return (
-                      <div className="text-center py-10 space-y-2 text-neutral-500 text-xs">
-                        <Users className="w-8 h-8 mx-auto text-neutral-700" />
+                      <div className="text-center py-10 space-y-2 text-slate-500 dark:text-slate-400 text-xs">
+                        <Users className="w-8 h-8 mx-auto text-slate-400 dark:text-slate-600" />
                         <p>{t('No players found matching your criteria.', 'لم يتم العثور على لاعبين مطابقين للبحث.')}</p>
                       </div>
                     );
@@ -1582,29 +1850,29 @@ export const GameDetailModal: React.FC = () => {
                     return (
                       <div
                         key={pid}
-                        className="pt-2 flex items-center justify-between gap-3 p-2 rounded-2xl hover:bg-neutral-950/60 transition-colors"
+                        className="pt-2 flex items-center justify-between gap-3 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-[#1B253D] transition-colors"
                       >
                         {/* Player Info */}
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <img
                             src={resolvePlayerAvatar(player)}
                             alt={player.name}
-                            className="w-10 h-10 rounded-xl object-cover ring-1 ring-neutral-700 shrink-0"
+                            className="w-10 h-10 rounded-xl object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs font-bold text-white truncate">{player.name}</span>
+                              <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{player.name}</span>
                               {friendIds.has(pid) && (
-                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950 border border-emerald-800/60 px-1.5 py-0.2 rounded">
+                                <span className="text-[9px] font-bold text-[#1246DF] dark:text-[#05BCD1] bg-[#1246DF]/10 dark:bg-[#05BCD1]/15 border border-[#1246DF]/20 dark:border-[#05BCD1]/30 px-1.5 py-0.2 rounded">
                                   {t('Friend', 'صديق')}
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-neutral-400 font-mono truncate">
-                              @{player.username} • {player.area}
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">
+                              @{player.username} • {getKuwaitAreaLabel(player.area, language)}
                             </p>
-                            <span className="text-[10px] text-neutral-400 font-medium block">
-                              {game.sport}: <span className="text-emerald-400 font-bold">{skillInSport}</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">
+                              {getSportLabel(game.sport, language)}: <span className="text-[#1246DF] dark:text-[#05BCD1] font-bold">{getSkillLabel(skillInSport, language)}</span>
                             </span>
                           </div>
                         </div>
@@ -1612,13 +1880,13 @@ export const GameDetailModal: React.FC = () => {
                         {/* Invite Actions: Joined / Invited (Cancel) / Invite Again / Invite */}
                         <div className="shrink-0 flex items-center gap-1.5">
                           {isAlreadyInGame || invite?.status === 'accepted' ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 bg-neutral-950 border border-neutral-800 px-3 py-1.5 rounded-xl">
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] px-3 py-1.5 rounded-xl">
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                               <span>{t('Joined', 'منضم')}</span>
                             </span>
                           ) : invite?.status === 'pending' ? (
                             <div className="flex items-center gap-1">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2.5 py-1.5 rounded-xl">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 px-2.5 py-1.5 rounded-xl">
                                 <Clock className="w-3.5 h-3.5" />
                                 <span>{t('Invited', 'تمت الدعوة')}</span>
                               </span>
@@ -1633,7 +1901,7 @@ export const GameDetailModal: React.FC = () => {
                                     setInviteError(err?.message || 'Failed to cancel invite.');
                                   }
                                 }}
-                                className="px-2 py-1.5 rounded-xl bg-neutral-800 hover:bg-red-950/60 hover:text-red-400 text-neutral-400 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                className="px-2 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-[#1B253D] dark:hover:bg-rose-950/60 hover:text-rose-600 dark:hover:text-rose-400 text-slate-600 dark:text-slate-400 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
                                 title={t('Cancel invite', 'إلغاء الدعوة')}
                               >
                                 {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <span>{t('Cancel', 'إلغاء')}</span>}
@@ -1651,13 +1919,13 @@ export const GameDetailModal: React.FC = () => {
                                   setInviteError(err?.message || 'Failed to invite player.');
                                 }
                               }}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-200 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 px-3 py-1.5 rounded-xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] border border-slate-200 dark:border-[#22304E] px-3 py-1.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               {isLoading ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                               ) : (
                                 <>
-                                  <RotateCcw className="w-3 h-3 text-amber-400" />
+                                  <RotateCcw className="w-3 h-3 text-amber-500" />
                                   <span>{t('Invite Again', 'إعادة الدعوة')}</span>
                                 </>
                               )}
@@ -1674,7 +1942,7 @@ export const GameDetailModal: React.FC = () => {
                                   setInviteError(err?.message || 'Failed to invite player.');
                                 }
                               }}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-950 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-[#1246DF] hover:bg-[#0e37b3] px-3 py-1.5 rounded-xl transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               {isLoading ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

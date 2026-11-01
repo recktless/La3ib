@@ -112,8 +112,11 @@
         "skillLevel": { "type": "string", "enum": ["All Levels", "Beginner", "Intermediate", "Advanced", "Competitive"] },
         "gender": { "type": "string", "enum": ["All Welcome", "Men Only", "Women Only"] },
         "description": { "type": "string", "maxLength": 1000 },
-        "status": { "type": "string", "enum": ["Open", "Almost Full", "Full", "Completed", "Cancelled"] },
         "linkedBookingId": { "type": "string", "maxLength": 128 },
+        "bookingRef": { "type": "string", "maxLength": 50 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "locationLabel": { "type": "string", "maxLength": 200 },
         "costSharing": { "type": "object" },
         "cancellationPolicy": { "type": "string", "maxLength": 300 },
         "createdAt": { "type": "string" },
@@ -313,6 +316,37 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["uid", "username", "normalized", "createdAt"]
+    },
+    "GameCostSharingDetails": {
+      "title": "GameCostSharingDetails",
+      "description": "Sensitive cost-sharing details accessible only to joined participants and host (e.g. WAMD phone number)",
+      "type": "object",
+      "properties": {
+        "gameId": { "type": "string", "maxLength": 128 },
+        "wamdPhoneNumber": { "type": "string", "maxLength": 30 },
+        "organizerId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["gameId"]
+    },
+    "PaymentLinkRequest": {
+      "title": "PaymentLinkRequest",
+      "description": "Participant payment link request for match cost-sharing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "gameId": { "type": "string", "maxLength": 128 },
+        "gameTitle": { "type": "string", "maxLength": 150 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "requesterName": { "type": "string", "maxLength": 100 },
+        "requesterAvatar": { "type": "string", "maxLength": 500 },
+        "hostId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "handled"] },
+        "createdAt": { "type": "string" },
+        "handledAt": { "type": "string" },
+        "paymentLinkUrl": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "gameId", "requesterId", "hostId", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -363,6 +397,14 @@
     "/games/{gameId}/payments/{userId}": {
       "schema": { "$ref": "#/entities/GamePayment" },
       "description": "Participant payment records for a specific game"
+    },
+    "/games/{gameId}/paymentLinkRequests/{requesterUserId}": {
+      "schema": { "$ref": "#/entities/PaymentLinkRequest" },
+      "description": "Participant payment link request records for cost-sharing"
+    },
+    "/games/{gameId}/costSharingDetails/{detailId}": {
+      "schema": { "$ref": "#/entities/GameCostSharingDetails" },
+      "description": "Participant-only cost-sharing sensitive details such as WAMD phone number"
     },
     "/gameParticipants/{participantId}": {
       "schema": { "$ref": "#/entities/GameParticipant" },

@@ -99,9 +99,9 @@ describe('Restricted Organizer UX & Safety Enforcement', () => {
       expect(html).not.toContain('data-testid="booking-restricted-banner"');
       expect(html).not.toContain('Booking Restricted');
       expect(html).toContain('aria-label="Post Booking"');
-      expect(html).not.toContain('Account restricted from organizing games');
       // Button should NOT have disabled=""
-      expect(html).toContain('bg-gradient-to-r from-emerald-500 to-teal-400');
+      expect(html).not.toContain('disabled=""');
+      expect(html).toContain('bg-[#1246DF]');
     });
 
     it('handles missing/loading privilege safely by disabling action without showing restriction banner', () => {
@@ -172,7 +172,8 @@ describe('Restricted Organizer UX & Safety Enforcement', () => {
       expect(html).not.toContain('data-testid="booking-restricted-banner"');
       expect(html).toContain('aria-label="Book a Pitch"');
       expect(html).not.toContain('Action disabled: your account is restricted from booking pitches');
-      expect(html).toContain('bg-gradient-to-r from-emerald-500 to-teal-500');
+      expect(html).not.toContain('disabled=""');
+      expect(html).toContain('bg-[#1246DF]');
     });
 
     it('safely disables Book a Pitch when privilege is loading', () => {

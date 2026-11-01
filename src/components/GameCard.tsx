@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { Game, getCostSharingMethods } from '../types';
+import { 
+  Game, 
+  getCostSharingMethods,
+  getSportLabel,
+  getSkillLabel,
+  getKuwaitAreaLabel,
+  formatTimeRange12Hour
+} from '../types';
 import { useApp } from '../context/AppContext';
 import { 
   Calendar, 
@@ -8,9 +15,6 @@ import {
   Users, 
   CheckCircle2, 
   ArrowRight,
-  ShieldAlert,
-  Sparkles,
-  Zap,
   Loader2
 } from 'lucide-react';
 
@@ -27,6 +31,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
     isDemoActive,
     setAuthModalOpen,
     setAuthModalMode,
+    language,
     t 
   } = useApp();
 
@@ -56,198 +61,133 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
     }
   };
 
-  // Status badge helper
+  // Status badge styling
   const getStatusBadge = () => {
     switch (game.status) {
       case 'Open':
         return {
-          dot: 'bg-emerald-400',
+          dot: 'bg-emerald-500',
           text: t('Open', 'مفتوح'),
-          bg: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+          bg: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
         };
       case 'Almost Full':
         return {
-          dot: 'bg-amber-400',
+          dot: 'bg-amber-500',
           text: t('Almost Full', 'شبه ممتلئ'),
-          bg: 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+          bg: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
         };
       case 'Full':
         return {
-          dot: 'bg-red-400',
+          dot: 'bg-rose-500',
           text: t('Full', 'مكتمل'),
-          bg: 'bg-red-950/60 text-red-300 border-red-800/60'
+          bg: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
         };
       case 'Completed':
         return {
-          dot: 'bg-neutral-400',
+          dot: 'bg-slate-400',
           text: t('Completed', 'منتهية'),
-          bg: 'bg-neutral-900 text-neutral-400 border-neutral-800'
+          bg: 'bg-slate-100 dark:bg-[#0D1C68] text-slate-600 dark:text-slate-300 border-[#B9C9E0] dark:border-[#1F3590]'
         };
       case 'Cancelled':
         return {
-          dot: 'bg-neutral-600',
+          dot: 'bg-slate-500',
           text: t('Cancelled', 'ملغاة'),
-          bg: 'bg-neutral-900 text-neutral-500 border-neutral-800'
+          bg: 'bg-slate-100 dark:bg-[#0D1C68] text-slate-500 dark:text-slate-400 border-[#B9C9E0] dark:border-[#1F3590]'
         };
     }
   };
 
   const statusInfo = getStatusBadge();
 
-  // Sport icon helper
-  const getSportIcon = () => {
-    switch (game.sport) {
-      case 'Football': return '⚽';
-      case 'Padel': return '🎾';
-      case 'Basketball': return '🏀';
-      case 'Volleyball': return '🏐';
-      case 'Tennis': return '🎾';
-      case 'Badminton': return '🏸';
-      default: return '🏆';
-    }
-  };
-
   return (
     <div 
       onClick={() => setSelectedGameForDetail(game)}
-      className="group relative bg-neutral-900/90 hover:bg-neutral-900 border border-neutral-800/90 hover:border-neutral-700 rounded-2xl p-4 sm:p-5 transition-all duration-200 hover:shadow-xl hover:shadow-emerald-950/20 cursor-pointer flex flex-col justify-between"
+      className="group relative w-full bg-white dark:bg-[#0D1629] hover:border-[#3A60AA]/70 dark:hover:border-[#B9C9E0]/70 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md"
     >
-      <div>
-        {/* Top meta bar */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-base sm:text-lg">{getSportIcon()}</span>
-            <span className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-              {game.sport}
+      {/* 1. Header: Sport Pill + Available Spots / Status Badge */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EEF3F9] dark:bg-[#142578] text-[#3A60AA] dark:text-[#B9C9E0] border border-[#B9C9E0]/50 dark:border-[#1F3590]/50 shrink-0">
+            {getSportLabel(game.sport, language)}
+          </span>
+          {game.isIndoor && (
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">
+              {t('Indoor AC', 'مكيف')}
             </span>
-            <span className="text-neutral-600">•</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300">
-              {game.skillLevel}
-            </span>
-            {game.isIndoor && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-800/50 hidden sm:inline">
-                {t('Indoor AC', 'مكيف')}
-              </span>
-            )}
-          </div>
-
-          {/* Status badge */}
-          <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${statusInfo.bg}`}>
-            <span className={`w-2 h-2 rounded-full ${statusInfo.dot} animate-pulse`} />
-            <span>{statusInfo.text}</span>
-          </div>
+          )}
         </div>
 
-        {/* Title */}
-        <h3 className="font-bold text-base sm:text-lg text-white group-hover:text-emerald-400 transition-colors line-clamp-1 mb-2">
-          {game.title}
-        </h3>
-
-        {/* Schedule & Location */}
-        <div className="space-y-1.5 text-xs text-neutral-400 mb-4">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="text-neutral-300 font-medium">{game.date}</span>
-            <span className="text-neutral-600">•</span>
-            <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>{game.startTime} – {game.endTime}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="text-neutral-200 font-medium truncate">{game.courtName}</span>
-            <span className="text-emerald-400/80 font-semibold shrink-0">({game.area})</span>
-          </div>
-        </div>
-
-        {/* Players joined bar & avatars */}
-        <div className="bg-neutral-950/60 rounded-xl p-3 border border-neutral-800/60 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-200">
-              <Users className="w-3.5 h-3.5 text-emerald-400" />
-              <span>
-                {game.participants.length}/{game.maxPlayers} {t('players', 'لاعبين')}
-              </span>
-            </div>
-            <span className="text-xs font-semibold text-emerald-400">
-              {spotsLeft > 0 ? `${spotsLeft} ${t('spots left', 'أماكن متبقية')}` : t('Game Full', 'مكتمل')}
+        {/* Spots Left / Status Pill */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isOrganizer ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+              {t('Host', 'المنظم')}
             </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden mb-2.5">
-            <div 
-              className={`h-full transition-all duration-300 ${
-                isFull ? 'bg-red-500' : 'bg-gradient-to-r from-emerald-500 to-teal-400'
-              }`}
-              style={{ width: `${Math.min(100, (game.participants.length / game.maxPlayers) * 100)}%` }}
-            />
-          </div>
-
-          {/* Player Avatars */}
-          <div className="flex items-center justify-between">
-            <div className="flex -space-x-2 overflow-hidden">
-              {game.participants.slice(0, 5).map((p, idx) => (
-                <img 
-                  key={idx}
-                  src={p.avatar}
-                  alt={p.name}
-                  title={p.name}
-                  className="inline-block h-6 w-6 rounded-full ring-2 ring-neutral-900 object-cover"
-                />
-              ))}
-              {game.participants.length > 5 && (
-                <span className="flex items-center justify-center h-6 w-6 rounded-full bg-neutral-800 ring-2 ring-neutral-900 text-[10px] font-bold text-neutral-300">
-                  +{game.participants.length - 5}
-                </span>
-              )}
-            </div>
-
-            {/* Organizer tag */}
-            <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
-              <span>{t('Host:', 'المنظم:')}</span>
-              <span className="text-neutral-200 font-semibold truncate max-w-[100px]">
-                {game.organizer.name.split(' ')[0]}
-              </span>
-              <span className="text-emerald-400 text-[10px]">
-                ★{game.organizer.attendanceRate}%
-              </span>
-            </div>
-          </div>
+          ) : isJoined ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              <span>{t('Joined ✓', 'مشترك ✓')}</span>
+            </span>
+          ) : isFull ? (
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+              {t('Game Full', 'مكتمل')}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <Users className="w-3 h-3" />
+              <span>{spotsLeft} {t('spots left', 'أماكن متبقية')}</span>
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Card Footer: Cost Sharing & CTA */}
-      <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between gap-3">
-        <div>
+      {/* 2. Game Title */}
+      <h3 className="font-bold text-base sm:text-lg text-[#06135B] dark:text-white group-hover:text-[#3A60AA] dark:group-hover:text-[#B9C9E0] transition-colors line-clamp-1 mb-2">
+        {game.title}
+      </h3>
+
+      {/* 3. Date, Time & Venue (Compact 2 Lines) */}
+      <div className="space-y-1 text-xs text-slate-600 dark:text-slate-300 mb-3.5">
+        <div className="flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
+          <span className="font-medium text-slate-800 dark:text-slate-200">{game.date}</span>
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <Clock className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
+          <span>{formatTimeRange12Hour(game.startTime, game.endTime, language)}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 truncate">
+          <MapPin className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
+          <span className="truncate">{game.courtName}</span>
+          <span className="text-slate-400 dark:text-slate-500 shrink-0">•</span>
+          <span className="text-[#3A60AA] dark:text-[#B9C9E0] font-semibold shrink-0">
+            {getKuwaitAreaLabel(game.area, language)}
+          </span>
+        </div>
+      </div>
+
+      {/* 4. Subtle Footer: Price / Cost + Action */}
+      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+        {/* Cost / Price */}
+        <div className="text-xs">
           {game.costSharing?.enabled ? (
-            <div>
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">
-                  {t('Estimated Share', 'حصة تقديرية')}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">{t('Estimated Share', 'حصة تقديرية')}</span>
+              <span className="font-bold text-[#06135B] dark:text-white text-sm">
+                {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}
+              </span>
+              <span className="text-[10px] font-bold text-[#3A60AA] dark:text-[#B9C9E0]">KWD</span>
+              <span className="text-[10px] text-slate-400">({t('Estimate', 'تقديري')})</span>
+              {getCostSharingMethods(game.costSharing).map(m => (
+                <span key={m} className="hidden sm:inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-[#EEF3F9] dark:bg-[#142578] text-[#06135B] dark:text-[#B9C9E0]">
+                  {m === 'cash' ? t('Cash', 'نقداً') : m === 'wamd' ? t('WAMD', 'ومض') : t('Payment Link', 'رابط الدفع')}
                 </span>
-                <span className="text-[9px] text-neutral-500">({t('Estimate', 'تقديري')})</span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-base sm:text-lg font-extrabold text-white">
-                  {(game.costSharing.estimatedShare ?? game.pricePerPlayerKWD).toFixed(3)}
-                </span>
-                <span className="text-xs font-bold text-emerald-400">KWD</span>
-                {getCostSharingMethods(game.costSharing).map(m => (
-                  <span key={m} className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
-                    {m === 'cash' ? t('💵 Cash', '💵 نقداً') : m === 'wamd' ? t('⚡ WAMD', '⚡ ومض') : t('🔗 Link', '🔗 رابط')}
-                  </span>
-                ))}
-              </div>
+              ))}
             </div>
           ) : (
-            <div>
-              <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">
-                {t('Cost Sharing', 'تقاسم التكلفة')}
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-neutral-300">
-                {t('None (Free)', 'غير مفعل (مجاني)')}
-              </span>
+            <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400 text-[11px]">
+              <span>{t('Cost Sharing', 'تقاسم التكلفة')}:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{t('None (Free)', 'مجاني')}</span>
             </div>
           )}
         </div>
@@ -255,48 +195,33 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
         {/* Action Button */}
         <div>
           {isOrganizer ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedGameForDetail(game);
-              }}
-              className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-bold text-xs transition-colors"
-            >
-              {t('Manage Host', 'إدارة المباراة')}
-            </button>
+            <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-[#EEF3F9] hover:bg-[#DCE5F2] dark:bg-[#142578] dark:hover:bg-[#1B3088] text-[#06135B] dark:text-white font-semibold text-xs transition-colors border border-[#B9C9E0]/60 dark:border-[#1F3590]">
+              {t('Manage Host', 'إدارة')}
+            </span>
           ) : isJoined ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedGameForDetail(game);
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-950 border border-emerald-800 text-emerald-400 font-bold text-xs"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-semibold text-xs">
+              <CheckCircle2 className="w-3 h-3" />
               <span>{t('Joined ✓', 'مشترك ✓')}</span>
-            </button>
+            </span>
           ) : isFull ? (
-            <button
-              disabled
-              className="px-4 py-2 rounded-xl bg-neutral-800/60 text-neutral-500 font-bold text-xs cursor-not-allowed"
-            >
+            <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-[#142578]/50 text-slate-400 dark:text-slate-500 font-semibold text-xs">
               {t('Game Full', 'مكتمل')}
-            </button>
+            </span>
           ) : (
             <button
               onClick={handleJoinClick}
               disabled={isJoining}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-neutral-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 transition-all cursor-pointer transform active:scale-95"
+              className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl bg-[#3A60AA] hover:bg-[#2E4D8A] disabled:opacity-50 text-white font-semibold text-xs transition-all cursor-pointer shadow-xs hover:shadow-sm"
             >
               {isJoining ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>{t('Joining...', 'جارِ الانضمام...')}</span>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>{t('Joining...', 'جارٍ الانضمام...')}</span>
                 </>
               ) : (
                 <>
-                  <span>{t('Join Game', 'انضم للعبة')}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>{t('Join Game', 'انضم')}</span>
+                  <ArrowRight className="w-3 h-3 rtl:rotate-180" />
                 </>
               )}
             </button>

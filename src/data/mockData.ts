@@ -18,12 +18,17 @@ export const CURRENT_USER: UserProfile = {
   gamesPlayed: 42,
   gamesHosted: 8,
   attendanceRate: 98,
+  rating: 4.8,
+  ratingAverage: 4.8,
+  ratingCount: 16,
+  bannerUrl: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
   isOrganizer: true,
   age: 26,
   privacy: {
     showAge: true,
     showPhone: false,
     allowDirectInvites: true,
+    isPrivateProfile: false,
   },
 };
 
@@ -35,6 +40,7 @@ export const MOCK_PLAYERS: UserProfile[] = [
     nameAr: 'سالم العتيبي',
     username: 'salem_striker',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1200&q=80',
     area: 'Mishref',
     bio: 'Box-to-box midfielder. Let us keep it clean and energetic.',
     favoriteSports: ['Football', 'Basketball'],
@@ -42,6 +48,9 @@ export const MOCK_PLAYERS: UserProfile[] = [
     gamesPlayed: 64,
     gamesHosted: 15,
     attendanceRate: 100,
+    rating: 4.9,
+    ratingAverage: 4.9,
+    ratingCount: 22,
     isFollowing: true,
     privacy: { showAge: true, showPhone: false, allowDirectInvites: true }
   },
@@ -142,6 +151,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?auto=format&fit=crop&w=800&q=80',
     amenities: ['Air Conditioned', 'Showers & Lockers', 'Valet Parking', 'Pro Shop & Café', 'High-speed Wi-Fi'],
     coordinates: { x: 42, y: 38 },
+    latitude: 29.3519,
+    longitude: 47.9422,
     availableSlots: [
       { id: 's1', date: '2026-09-25', startTime: '18:00', endTime: '19:30', priceKWD: 20.000 },
       { id: 's2', date: '2026-09-25', startTime: '20:00', endTime: '21:30', priceKWD: 20.000 },
@@ -163,6 +174,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1529900244933-289523cb0db0?auto=format&fit=crop&w=800&q=80',
     amenities: ['FIFA Grade Turf', 'Stadium Floodlights', 'Free Parking', 'Water Coolers', 'Changing Rooms'],
     coordinates: { x: 55, y: 52 },
+    latitude: 29.2731,
+    longitude: 48.0536,
     availableSlots: [
       { id: 'm1', date: '2026-09-25', startTime: '19:30', endTime: '21:00', priceKWD: 15.000 },
       { id: 'm2', date: '2026-09-25', startTime: '21:00', endTime: '22:30', priceKWD: 15.000 },
@@ -183,6 +196,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=800&q=80',
     amenities: ['Artificial Grass', 'Floodlights', 'Cafeteria', 'Restrooms'],
     coordinates: { x: 68, y: 44 },
+    latitude: 29.3333,
+    longitude: 48.0772,
     availableSlots: [
       { id: 'sa1', date: '2026-09-25', startTime: '20:00', endTime: '21:30', priceKWD: 12.000 },
       { id: 'sa2', date: '2026-09-25', startTime: '21:30', endTime: '23:00', priceKWD: 12.000 },
@@ -202,6 +217,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?auto=format&fit=crop&w=800&q=80',
     amenities: ['Panoramic Glass', 'Full Climate Control', 'Specialty Coffee Bar', 'Locker Rooms'],
     coordinates: { x: 48, y: 48 },
+    latitude: 29.3100,
+    longitude: 47.9800,
     availableSlots: [
       { id: 'y1', date: '2026-09-25', startTime: '19:00', endTime: '20:30', priceKWD: 16.000 },
       { id: 'y2', date: '2026-09-26', startTime: '20:30', endTime: '22:00', priceKWD: 16.000 },
@@ -221,6 +238,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=800&q=80',
     amenities: ['Hardwood Flooring', 'Breakaway Rims', 'Electronic Scoreboard', 'Lounge Area'],
     coordinates: { x: 72, y: 70 },
+    latitude: 29.1800,
+    longitude: 48.1100,
     availableSlots: [
       { id: 'tv1', date: '2026-09-25', startTime: '19:00', endTime: '20:30', priceKWD: 10.000 },
       { id: 'tv2', date: '2026-09-26', startTime: '18:00', endTime: '19:30', priceKWD: 10.000 },
@@ -240,6 +259,8 @@ export const MOCK_COURTS: Court[] = [
     image: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?auto=format&fit=crop&w=800&q=80',
     amenities: ['Deep White Sand', 'Sea Breeze', 'Night Lights', 'Beachside Showers'],
     coordinates: { x: 74, y: 40 },
+    latitude: 29.3400,
+    longitude: 48.0650,
     availableSlots: [
       { id: 'mv1', date: '2026-09-25', startTime: '18:30', endTime: '20:00', priceKWD: 8.000 },
       { id: 'mv2', date: '2026-09-26', startTime: '19:00', endTime: '20:30', priceKWD: 8.000 },

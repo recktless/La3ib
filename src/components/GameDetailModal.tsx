@@ -514,9 +514,9 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 overflow-y-auto animate-fade-in">
       <div 
-        className="relative w-full max-w-3xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92dvh]"
+        className="relative w-full max-w-3xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92dvh] animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -3,19 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>La3ib (لعيب) | Kuwait Sports &amp; Court Booking Platform</title>
+    <title>La3ib</title>
     <meta name="description" content="Kuwait's premier sports social platform for booking courts via Li3ib, discovering pickup games, splitting payments with KNET, and connecting with local players." />
-    <meta property="og:title" content="La3ib (لعيب) | Kuwait Sports &amp; Court Booking Platform" />
+    <meta property="og:title" content="La3ib" />
     <meta property="og:description" content="Kuwait's premier sports social platform for booking courts via Li3ib, discovering pickup games, splitting payments with KNET, and connecting with local players." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="La3ib" />
     <link rel="icon" type="image/png" href="/assets/aistudio/Playful_LA3IB_Arabic-English_Logo_40596055.png" />
+    <link rel="apple-touch-icon" href="/assets/aistudio/Playful_LA3IB_Arabic-English_Logo_40596055.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+      @keyframes la3ibBreathe {
+        0%, 100% { transform: scale(1); opacity: 0.92; }
+        50% { transform: scale(1.03); opacity: 1; filter: drop-shadow(0 4px 16px rgba(58, 96, 170, 0.28)); }
+      }
+      .initial-splash-logo {
+        animation: la3ibBreathe 2.4s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .initial-splash-logo { animation: none !important; }
+      }
+      @media (prefers-color-scheme: dark) {
+        #initial-splash { background-color: #06135B !important; color: #FFFFFF !important; }
+      }
+    </style>
   </head>
   <body class="bg-[#F7F7F8] dark:bg-[#06135B] text-slate-900 dark:text-slate-100 antialiased selection:bg-[#3A60AA] selection:text-white min-h-screen transition-colors duration-150">
-    <div id="root"></div>
+    <div id="root">
+      <div id="initial-splash" style="min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #F7F7F8; transition: background-color 0.2s ease;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+          <img 
+            src="/assets/aistudio/Playful_LA3IB_Arabic-English_Logo_40596055.png" 
+            alt="La3ib" 
+            width="108" 
+            height="72"
+            class="initial-splash-logo"
+            style="aspect-ratio: 3/2; object-fit: contain; width: 108px; height: 72px;" 
+          />
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

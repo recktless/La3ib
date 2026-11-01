@@ -65,4 +65,245 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   padding-top: max(1rem, env(safe-area-inset-top, 0px));
 }
 
+/* Consistent, subtle animations for La3ib */
+@keyframes la3ibBreathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+    filter: drop-shadow(0 4px 14px rgba(58, 96, 170, 0.28));
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes progressIndeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(50%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+/* Sidebar & Drawer Smooth Motion */
+@keyframes drawerInLTR {
+  from {
+    transform: translateX(-100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes drawerInRTL {
+  from {
+    transform: translateX(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes drawerOutLTR {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes drawerOutRTL {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sidebarSlideInLTR {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sidebarSlideInRTL {
+  from {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sidebarSlideOutLTR {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+}
+
+@keyframes sidebarSlideOutRTL {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+}
+
+/* GPU-friendly utility animation classes */
+.animate-fade-in {
+  animation: fadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-out {
+  animation: fadeOut 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-popover-in {
+  animation: popoverIn 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-logo-breathe {
+  animation: la3ibBreathe 2.4s ease-in-out infinite;
+}
+
+.animate-progress-indeterminate {
+  animation: progressIndeterminate 1.6s ease-in-out infinite;
+}
+
+.animate-drawer-in {
+  animation: drawerInLTR 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[dir="rtl"] .animate-drawer-in {
+  animation: drawerInRTL 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-drawer-out {
+  animation: drawerOutLTR 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[dir="rtl"] .animate-drawer-out {
+  animation: drawerOutRTL 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sidebar-slide-in {
+  animation: sidebarSlideInLTR 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[dir="rtl"] .animate-sidebar-slide-in {
+  animation: sidebarSlideInRTL 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sidebar-slide-out {
+  animation: sidebarSlideOutLTR 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[dir="rtl"] .animate-sidebar-slide-out {
+  animation: sidebarSlideOutRTL 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Subtle interactive feedback for controls */
+.interactive-tap {
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), background-color 180ms ease, opacity 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+.interactive-tap:active {
+  transform: scale(0.98);
+}
+
+/* Strict reduced motion adherence */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-logo-breathe,
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-scale-in,
+  .animate-popover-in,
+  .animate-progress-indeterminate,
+  .animate-drawer-in,
+  .animate-drawer-out,
+  .animate-sidebar-slide-in,
+  .animate-sidebar-slide-out {
+    animation: none !important;
+  }
+}
+
 

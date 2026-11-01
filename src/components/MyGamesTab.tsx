@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { GameCard } from './GameCard';
+import { BrandedLoader } from './BrandedLoader';
 import { 
   Calendar, 
   Clock, 
@@ -161,7 +162,7 @@ export const MyGamesTab: React.FC<{ defaultSubTab?: 'upcoming' | 'past' | 'booki
                 {t('My Games & Activity', 'مبارياتي ونشاطاتي الرياضية')}
               </h1>
               {isMyGamesLoading && (
-                <Loader2 className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0] animate-spin" />
+                <BrandedLoader mode="inline" />
               )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-[#B9C9E0]/80 mt-1">

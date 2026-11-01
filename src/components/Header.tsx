@@ -265,7 +265,7 @@ export const Header: React.FC = () => {
 
               {overflowOpen && (
                 <div 
-                  className="absolute right-0 rtl:right-auto rtl:left-0 mt-2 w-56 bg-white dark:bg-[#06135B] border border-slate-200/80 dark:border-[#1F3590] rounded-2xl shadow-xl p-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100"
+                  className="absolute right-0 rtl:right-auto rtl:left-0 mt-2 w-56 bg-white dark:bg-[#06135B] border border-slate-200/80 dark:border-[#1F3590] rounded-2xl shadow-xl p-1.5 z-50 text-xs animate-popover-in"
                   role="menu"
                 >
                   {/* Community */}
@@ -476,7 +476,7 @@ export const Header: React.FC = () => {
 
               {accountDropdownOpen && !isViewingOwnProfile && (
                 <div 
-                  className="absolute right-0 rtl:right-auto rtl:left-0 mt-2 w-64 bg-white dark:bg-[#06135B] border border-slate-200/80 dark:border-[#1F3590] rounded-2xl shadow-xl p-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100"
+                  className="absolute right-0 rtl:right-auto rtl:left-0 mt-2 w-64 bg-white dark:bg-[#06135B] border border-slate-200/80 dark:border-[#1F3590] rounded-2xl shadow-xl p-1.5 z-50 text-xs animate-popover-in"
                   role="menu"
                 >
                   {/* Account Badge / Identity Header */}

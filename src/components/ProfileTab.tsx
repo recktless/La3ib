@@ -31,6 +31,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { SettingsView } from './SettingsView';
+import { BrandedLoader } from './BrandedLoader';
 import { SportType, SkillLevel, KuwaitArea, PlayerActivityStats, resolvePlayerAvatar, getSportLabel, getSkillLabel, formatPlayerRating } from '../types';
 import { isFirebaseConfigured, uploadUserProfilePicture, compressImageClient, validateUsername, mapFirebaseAuthError } from '../lib/firebase';
 
@@ -398,11 +399,11 @@ export const ProfileTab: React.FC = () => {
 
   if (authStatus === 'loading') {
     return (
-      <div className="max-w-4xl mx-auto py-24 flex flex-col items-center justify-center space-y-3">
-        <Loader2 className="w-8 h-8 text-[#1246DF] dark:text-[#05BCD1] animate-spin" />
-        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-          {t('Loading athlete profile...', 'جارٍ تحميل الملف الرياضي...')}
-        </p>
+      <div className="max-w-4xl mx-auto py-24">
+        <BrandedLoader 
+          mode="section" 
+          message={t('Loading athlete profile...', 'جارٍ تحميل الملف الرياضي...')} 
+        />
       </div>
     );
   }

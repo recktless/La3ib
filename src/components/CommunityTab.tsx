@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { GameCard } from './GameCard';
 import { PlayerDiscoveryTab } from './PlayerDiscoveryTab';
+import { BrandedLoader } from './BrandedLoader';
 import { 
   SportType, 
   SkillLevel, 
@@ -315,10 +316,10 @@ export const CommunityTab: React.FC = () => {
 
           {/* Loading and Error States */}
           {isGamesLoading && (
-            <div className="text-center py-10 bg-white dark:bg-[#0D1629] rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 text-slate-500 shadow-xs">
-              <RotateCw className="w-6 h-6 animate-spin mx-auto text-[#3A60AA] mb-2" />
-              <p className="text-xs">{t('Loading pickup games...', 'جارٍ تحميل المباريات...')}</p>
-            </div>
+            <BrandedLoader 
+              mode="section" 
+              message={t('Loading pickup games...', 'جارٍ تحميل المباريات...')} 
+            />
           )}
 
           {gamesError && (

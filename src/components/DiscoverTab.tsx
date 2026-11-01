@@ -17,6 +17,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { GoogleMapDiscover } from './GoogleMapDiscover';
+import { BrandedLoader } from './BrandedLoader';
 
 export const DiscoverTab: React.FC = () => {
   const { 
@@ -244,10 +245,10 @@ export const DiscoverTab: React.FC = () => {
 
           {/* Loading and Error States */}
           {isGamesLoading && (
-            <div className="text-center py-10 bg-white dark:bg-[#0D1C68] rounded-[6px] border border-[#B9C9E0] dark:border-[#1F3590] p-6 text-slate-500">
-              <RotateCw className="w-6 h-6 animate-spin mx-auto text-[#3A60AA] mb-2" />
-              <p className="text-xs">{t('Loading pickup games...', 'جارٍ تحميل المباريات...')}</p>
-            </div>
+            <BrandedLoader 
+              mode="section" 
+              message={t('Loading pickup games...', 'جارٍ تحميل المباريات...')} 
+            />
           )}
 
           {gamesError && (

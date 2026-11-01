@@ -102,7 +102,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
   return (
     <div 
       onClick={() => setSelectedGameForDetail(game)}
-      className="group relative w-full bg-white dark:bg-[#0D1629] hover:border-[#3A60AA]/70 dark:hover:border-[#B9C9E0]/70 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md"
+      className="group relative w-full bg-white dark:bg-[#0D1629] hover:border-[#3A60AA]/70 dark:hover:border-[#B9C9E0]/70 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md interactive-tap"
     >
       {/* 1. Header: Sport Pill + Available Spots / Status Badge */}
       <div className="flex items-center justify-between gap-2 mb-2">

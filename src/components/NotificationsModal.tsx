@@ -109,11 +109,11 @@ export const NotificationsModal: React.FC = () => {
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 animate-fade-in"
       onClick={() => setNotificationsModalOpen(false)}
     >
       <div 
-        className="relative w-full max-w-lg bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl overflow-hidden flex flex-col my-auto max-h-[85dvh] transition-colors"
+        className="relative w-full max-w-lg bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-3xl overflow-hidden flex flex-col my-auto max-h-[85dvh] transition-colors animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

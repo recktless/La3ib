@@ -170,10 +170,10 @@ export const ResetPasswordModal: React.FC = () => {
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 overflow-y-auto animate-fade-in"
       dir={language === 'ar' ? 'rtl' : 'ltr'}
     >
-      <div className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-5 sm:p-7 max-h-[92dvh] overflow-y-auto transition-colors">
+      <div className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-5 sm:p-7 max-h-[92dvh] overflow-y-auto transition-colors animate-scale-in">
         {/* Close Button */}
         <button
           onClick={handleClose}

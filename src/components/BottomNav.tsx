@@ -24,7 +24,7 @@ export const BottomNav: React.FC = () => {
           type="button"
           aria-label={t('Home', 'الرئيسية')}
           onClick={() => setActiveTab('home')}
-          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer ${
+          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
             activeTab === 'home' 
               ? 'text-[#3A60AA] dark:text-[#B9C9E0] font-bold' 
               : 'text-slate-500 hover:text-[#06135B] dark:text-[#B9C9E0]/70 dark:hover:text-white'
@@ -41,7 +41,7 @@ export const BottomNav: React.FC = () => {
           type="button"
           aria-label={t('Community', 'المجتمع')}
           onClick={() => setActiveTab('community')}
-          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer ${
+          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
             isCommunityActive 
               ? 'text-[#3A60AA] dark:text-[#B9C9E0] font-bold' 
               : 'text-slate-500 hover:text-[#06135B] dark:text-[#B9C9E0]/70 dark:hover:text-white'
@@ -74,7 +74,7 @@ export const BottomNav: React.FC = () => {
           type="button"
           aria-label={t('Map', 'الخريطة')}
           onClick={() => setActiveTab('map')}
-          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer ${
+          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
             activeTab === 'map' 
               ? 'text-[#3A60AA] dark:text-[#B9C9E0] font-bold' 
               : 'text-slate-500 hover:text-[#06135B] dark:text-[#B9C9E0]/70 dark:hover:text-white'
@@ -91,7 +91,7 @@ export const BottomNav: React.FC = () => {
           type="button"
           aria-label={t('Profile', 'الملف')}
           onClick={() => setActiveTab('profile')}
-          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer ${
+          className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
             activeTab === 'profile' 
               ? 'text-[#3A60AA] dark:text-[#B9C9E0] font-bold' 
               : 'text-slate-500 hover:text-[#06135B] dark:text-[#B9C9E0]/70 dark:hover:text-white'

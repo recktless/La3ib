@@ -117,6 +117,7 @@ export const Sidebar: React.FC = () => {
         <div className="space-y-2 mb-5">
           <button
             type="button"
+            data-tutorial="nav-create"
             onClick={() => {
               setCreateGamePrefill(null);
               setCreateGameModalOpen(true);
@@ -160,10 +161,18 @@ export const Sidebar: React.FC = () => {
             const isActive = activeTab === link.id || 
               (link.id === 'community' && (activeTab === 'discover' || activeTab === 'players'));
 
+            const tutorialAttr = 
+              link.id === 'home' ? 'nav-home' :
+              link.id === 'community' ? 'nav-community' :
+              link.id === 'map' ? 'nav-map' :
+              link.id === 'games' ? 'nav-my-games' :
+              link.id === 'profile' ? 'nav-profile' : undefined;
+
             return (
               <button
                 key={link.id}
                 type="button"
+                data-tutorial={tutorialAttr}
                 onClick={() => handleNavClick(link.id)}
                 className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer interactive-tap ${
                   isActive

@@ -57,7 +57,11 @@ import {
 } from '../lib/migration';
 import { formatTime12Hour, formatTimeRange12Hour } from '../types';
 
-export const AdminPanelModal: React.FC = () => {
+interface AdminPanelModalProps {
+  initialSection?: 'overview' | 'reports' | 'games' | 'users' | 'audit';
+}
+
+export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection = 'overview' }) => {
   const { 
     adminModalOpen, 
     setAdminModalOpen, 
@@ -79,10 +83,15 @@ export const AdminPanelModal: React.FC = () => {
     continueAsDemo,
     isDemoActive,
     language,
-    t 
+    t,
+    startTutorial,
+    setActiveTab,
+    banPlayer,
+    unbanPlayer,
+    deletePlayer
   } = useApp();
 
-  const [activeAdminSection, setActiveAdminSection] = useState<'overview' | 'reports' | 'games' | 'users' | 'audit'>('overview');
+  const [activeAdminSection, setActiveAdminSection] = useState<'overview' | 'reports' | 'games' | 'users' | 'audit'>(initialSection);
   const [resolvedReportIds, setResolvedReportIds] = useState<string[]>([]);
   const [dismissedReportIds, setDismissedReportIds] = useState<string[]>([]);
   const [reportFilter, setReportFilter] = useState<'all' | 'open' | 'reviewing' | 'resolved' | 'dismissed'>('all');
@@ -121,6 +130,25 @@ export const AdminPanelModal: React.FC = () => {
     reason: string;
   } | null>(null);
 
+  // Ban Player Dialog State
+  const [banPlayerDialog, setBanPlayerDialog] = useState<{
+    userId: string;
+    userName: string;
+    accountHandle: string;
+    isPermanent: boolean;
+    expiresAt: string;
+    reason: string;
+  } | null>(null);
+
+  // Delete Player Dialog State (High Friction)
+  const [deletePlayerDialog, setDeletePlayerDialog] = useState<{
+    userId: string;
+    userName: string;
+    accountHandle: string;
+    confirmationText: string;
+    reason: string;
+  } | null>(null);
+
   // Phase 4: Game Filter States
   const [gameSearchTerm, setGameSearchTerm] = useState('');
   const [gameSportFilter, setGameSportFilter] = useState<string>('all');
@@ -129,7 +157,7 @@ export const AdminPanelModal: React.FC = () => {
 
   // Phase 3: Player Management States
   const [userSearchTerm, setUserSearchTerm] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'organizers' | 'restricted'>('all');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'organizers' | 'restricted' | 'banned'>('all');
 
   // Phase 5: Audit Log States
   const [auditSearchTerm, setAuditSearchTerm] = useState('');
@@ -194,22 +222,24 @@ export const AdminPanelModal: React.FC = () => {
   // =========================================================================
   // Phase 1: Operational Telemetry & Bounded Analytics
   // =========================================================================
-  const allCurrentReports = isRealAdmin ? moderationReports : reports;
+  const safeModerationReports = moderationReports || [];
+  const safeReports = reports || [];
+  const allCurrentReports = isRealAdmin ? safeModerationReports : safeReports;
   const openReportsCount = isRealAdmin
-    ? moderationReports.filter(r => r.status === 'open').length
-    : reports.filter((r: any) => !resolvedReportIds.includes(r.id) && !dismissedReportIds.includes(r.id) && r.status !== 'reviewing').length;
+    ? safeModerationReports.filter(r => r.status === 'open').length
+    : safeReports.filter((r: any) => !resolvedReportIds.includes(r.id) && !dismissedReportIds.includes(r.id) && r.status !== 'reviewing').length;
 
   const reviewingReportsCount = isRealAdmin
-    ? moderationReports.filter(r => r.status === 'reviewing').length
-    : reports.filter((r: any) => r.status === 'reviewing' && !resolvedReportIds.includes(r.id) && !dismissedReportIds.includes(r.id)).length;
+    ? safeModerationReports.filter(r => r.status === 'reviewing').length
+    : safeReports.filter((r: any) => r.status === 'reviewing' && !resolvedReportIds.includes(r.id) && !dismissedReportIds.includes(r.id)).length;
 
   const resolvedReportsCount = isRealAdmin
-    ? moderationReports.filter(r => r.status === 'resolved').length
-    : reports.filter((r: any) => resolvedReportIds.includes(r.id) || r.status === 'resolved').length;
+    ? safeModerationReports.filter(r => r.status === 'resolved').length
+    : safeReports.filter((r: any) => resolvedReportIds.includes(r.id) || r.status === 'resolved').length;
 
   const dismissedReportsCount = isRealAdmin
-    ? moderationReports.filter(r => r.status === 'dismissed').length
-    : reports.filter((r: any) => dismissedReportIds.includes(r.id) || r.status === 'dismissed').length;
+    ? safeModerationReports.filter(r => r.status === 'dismissed').length
+    : safeReports.filter((r: any) => dismissedReportIds.includes(r.id) || r.status === 'dismissed').length;
 
   const pendingSafetyQueue = openReportsCount + reviewingReportsCount;
 
@@ -224,17 +254,19 @@ export const AdminPanelModal: React.FC = () => {
   }).length;
 
   // Live match capacity metrics
-  const activeMatchesList = games.filter(g => g.status !== 'Cancelled');
-  const totalSpotsOccupied = activeMatchesList.reduce((acc, g) => acc + g.participants.length, 0);
-  const totalCapacityAvailable = activeMatchesList.reduce((acc, g) => acc + g.maxPlayers, 0);
+  const safeGamesList = games || [];
+  const activeMatchesList = safeGamesList.filter(g => g.status !== 'Cancelled');
+  const totalSpotsOccupied = activeMatchesList.reduce((acc, g) => acc + (g.participants || []).length, 0);
+  const totalCapacityAvailable = activeMatchesList.reduce((acc, g) => acc + (g.maxPlayers || 0), 0);
   const platformCapacityRate = totalCapacityAvailable > 0 
     ? Math.round((totalSpotsOccupied / totalCapacityAvailable) * 100) 
     : 0;
-  const liveWindowVolumeKWD = activeMatchesList.reduce((acc, g) => acc + g.totalCourtCostKWD, 0);
+  const liveWindowVolumeKWD = activeMatchesList.reduce((acc, g) => acc + (g.totalCourtCostKWD || 0), 0);
 
   // 24-Hour Moderation Velocity
+  const safeLogs = moderationLogs || [];
   const oneDayAgoMs = Date.now() - 24 * 60 * 60 * 1000;
-  const velocity24h = moderationLogs.filter(l => {
+  const velocity24h = safeLogs.filter(l => {
     const logTime = new Date(l.createdAtISO || l.createdAt).getTime();
     return !isNaN(logTime) && logTime >= oneDayAgoMs;
   }).length;
@@ -526,6 +558,85 @@ export const AdminPanelModal: React.FC = () => {
     }
   };
 
+  // Task 1: Admin Tutorial Demo (Preview Mode)
+  const handleDemoTutorial = () => {
+    setAdminModalOpen(false);
+    setActiveTab('home');
+    setTimeout(() => {
+      startTutorial(true);
+    }, 250);
+  };
+
+  // Task 3: Ban Player Handler
+  const handleConfirmBan = async () => {
+    if (!banPlayerDialog) return;
+    const { userId, isPermanent, expiresAt, reason } = banPlayerDialog;
+
+    if (!isPermanent && !expiresAt) {
+      setActionError(t('Please select an expiration date and time for temporary ban.', 'يرجى تحديد تاريخ ووقت انتهاء الحظر المؤقت.'));
+      return;
+    }
+
+    setActionLoadingMap(prev => ({ ...prev, [userId]: true }));
+    setActionError(null);
+    try {
+      await banPlayer(userId, {
+        isPermanent,
+        expiresAt: isPermanent ? null : expiresAt,
+        reason: reason.trim() || undefined
+      });
+      setBanPlayerDialog(null);
+      setActionFeedback(t('Player has been banned and permissions revoked.', 'تم حظر اللاعب بنجاح وتعليق كافة صلاحياته.'));
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to ban player:', err);
+      setActionError(err?.message || t('Failed to ban player.', 'فشل تطبيق الحظر على اللاعب.'));
+    } finally {
+      setActionLoadingMap(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  // Task 3: Unban Player Handler
+  const handleUnbanPlayer = async (userId: string, userName: string) => {
+    setActionLoadingMap(prev => ({ ...prev, [userId]: true }));
+    setActionError(null);
+    try {
+      await unbanPlayer(userId, 'Account suspension lifted by administrator');
+      setActionFeedback(t(`Suspension lifted for ${userName}.`, `تم رفع الحظر بنجاح عن ${userName}.`));
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to lift suspension:', err);
+      setActionError(err?.message || t('Failed to lift suspension.', 'فشل رفع الحظر عن اللاعب.'));
+    } finally {
+      setActionLoadingMap(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  // Task 3: Delete Player Handler
+  const handleConfirmDeletePlayer = async () => {
+    if (!deletePlayerDialog) return;
+    const { userId, confirmationText, reason } = deletePlayerDialog;
+
+    if (confirmationText.trim() !== 'DELETE') {
+      setActionError(t('You must type DELETE exactly to confirm account deletion.', 'يجب كتابة كلمة DELETE تماماً لتأكيد الحذف النهائي.'));
+      return;
+    }
+
+    setActionLoadingMap(prev => ({ ...prev, [userId]: true }));
+    setActionError(null);
+    try {
+      await deletePlayer(userId, 'DELETE', reason.trim() || undefined);
+      setDeletePlayerDialog(null);
+      setActionFeedback(t('Player account and associated data permanently removed.', 'تم حذف حساب اللاعب وبياناته نهائياً بنجاح.'));
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to delete player:', err);
+      setActionError(err?.message || t('Failed to delete player account.', 'فشل حذف حساب اللاعب.'));
+    } finally {
+      setActionLoadingMap(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   // Filtered games list
   const filteredGames = useMemo(() => {
     return games.filter(g => {
@@ -550,9 +661,11 @@ export const AdminPanelModal: React.FC = () => {
         u.username.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
         u.area.toLowerCase().includes(userSearchTerm.toLowerCase());
       
+      const isPlayerBanned = Boolean(u.isBanned && (!u.banExpiresAt || new Date(u.banExpiresAt).getTime() > Date.now()));
       const matchRole = userRoleFilter === 'all' ||
         (userRoleFilter === 'organizers' && (u.isOrganizer || u.gamesHosted > 0)) ||
-        (userRoleFilter === 'restricted' && u.canOrganize === false);
+        (userRoleFilter === 'restricted' && u.canOrganize === false) ||
+        (userRoleFilter === 'banned' && isPlayerBanned);
 
       return matchSearch && matchRole;
     });
@@ -639,12 +752,25 @@ export const AdminPanelModal: React.FC = () => {
             </div>
           </div>
 
-          <button 
-            onClick={() => setAdminModalOpen(false)}
-            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button 
+              type="button"
+              onClick={handleDemoTutorial}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#22304E] bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title={t('Demo Tutorial / تجربة الجولة التعريفية', 'تجربة الجولة التعريفية (معاينة)')}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#05BCD1]" />
+              <span className="hidden sm:inline">{t('Demo Tutorial', 'تجربة الجولة التعريفية')}</span>
+              <span className="sm:hidden">{t('Demo', 'تجربة')}</span>
+            </button>
+            <button 
+              onClick={() => setAdminModalOpen(false)}
+              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0"
+              aria-label={t('Close admin panel', 'إغلاق لوحة الإدارة')}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Section Navigation */}
@@ -1385,18 +1511,18 @@ export const AdminPanelModal: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex bg-slate-100 dark:bg-[#1B253D] p-0.5 rounded-xl border border-slate-200 dark:border-[#22304E] text-[11px]">
-                  {(['all', 'organizers', 'restricted'] as const).map(role => (
+                <div className="flex bg-slate-100 dark:bg-[#1B253D] p-0.5 rounded-xl border border-slate-200 dark:border-[#22304E] text-[11px] overflow-x-auto">
+                  {(['all', 'organizers', 'restricted', 'banned'] as const).map(role => (
                     <button
                       key={role}
                       onClick={() => setUserRoleFilter(role)}
-                      className={`px-2.5 py-1 rounded-lg font-bold capitalize transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg font-bold capitalize transition-colors cursor-pointer shrink-0 ${
                         userRoleFilter === role 
                           ? 'bg-white dark:bg-[#131C31] text-[#1246DF] dark:text-[#05BCD1]' 
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      {role}
+                      {role === 'banned' ? t('Banned', 'المحظورون') : role}
                     </button>
                   ))}
                 </div>
@@ -1410,6 +1536,9 @@ export const AdminPanelModal: React.FC = () => {
                 <div className="space-y-2.5">
                   {filteredPlayers.map(u => {
                     const isRestricted = u.canOrganize === false;
+                    const isBanned = Boolean(u.isBanned && (!u.banExpiresAt || new Date(u.banExpiresAt).getTime() > Date.now()));
+                    const isSelf = u.id === currentUser.id || u.uid === currentUser.uid;
+                    const isOtherAdmin = Boolean(u.isAdmin && !isSelf);
                     const priorUserLogs = moderationLogs.filter(l => l.targetId === u.id || (u.uid && l.targetId === u.uid));
 
                     return (
@@ -1422,7 +1551,7 @@ export const AdminPanelModal: React.FC = () => {
                             onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                           />
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-bold text-slate-900 dark:text-white truncate">{u.name}</p>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">@{u.username}</span>
                               {u.isAdmin && (
@@ -1430,10 +1559,22 @@ export const AdminPanelModal: React.FC = () => {
                                   ADMIN
                                 </span>
                               )}
+                              {isBanned && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1">
+                                  <Ban className="w-2.5 h-2.5" />
+                                  <span>{u.banExpiresAt ? t('Banned (Temp)', 'محظور (مؤقت)') : t('Banned', 'محظور')}</span>
+                                </span>
+                              )}
                             </div>
                             <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-0.5">
                               {u.area} • <strong className="text-amber-500">★ {u.rating ? u.rating.toFixed(1) + '/5' : '—'}</strong> Rating • {u.gamesHosted} hosted • {u.gamesPlayed} played
                             </p>
+                            {isBanned && u.banReason && (
+                              <p className="text-rose-600 dark:text-rose-400 text-[10px] font-medium mt-0.5">
+                                {t('Ban Reason:', 'سبب الحظر:')} {u.banReason}
+                                {u.banExpiresAt && ` (${t('Expires:', 'ينتهي:')} ${new Date(u.banExpiresAt).toLocaleDateString()})`}
+                              </p>
+                            )}
                             {priorUserLogs.length > 0 && (
                               <p className="text-amber-600 dark:text-amber-400 text-[10px] font-semibold mt-0.5 flex items-center gap-1">
                                 <AlertCircle className="w-3 h-3" />
@@ -1443,7 +1584,7 @@ export const AdminPanelModal: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
                           <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
                             isRestricted 
                               ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
@@ -1452,21 +1593,74 @@ export const AdminPanelModal: React.FC = () => {
                             {isRestricted ? t('Hosting Restricted 🚫', 'تنظيم المباريات معلق 🚫') : t('Host Eligible ✓', 'مؤهل للتنظيم ✓')}
                           </span>
 
-                          <button
-                            onClick={() => setAthletePrivilegeDialog({
-                              userId: u.id,
-                              userName: u.name,
-                              currentCanOrganize: !isRestricted,
-                              reason: isRestricted ? 'Host privilege restored after review' : 'Restricted host privilege due to community guidelines'
-                            })}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                              isRestricted 
-                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                : 'bg-slate-200 hover:bg-slate-300 dark:bg-[#131C31] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            {isRestricted ? t('Restore Hosting', 'إعادة التفعيل') : t('Restrict Hosting', 'تعليق التنظيم')}
-                          </button>
+                          {isSelf ? (
+                            <span className="text-[11px] text-slate-400 italic px-1">{t('You (Admin)', 'حسابك')}</span>
+                          ) : isOtherAdmin ? (
+                            <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold px-1">{t('Protected Admin', 'مسؤول محمي')}</span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setAthletePrivilegeDialog({
+                                  userId: u.id,
+                                  userName: u.name,
+                                  currentCanOrganize: !isRestricted,
+                                  reason: isRestricted ? 'Host privilege restored after review' : 'Restricted host privilege due to community guidelines'
+                                })}
+                                className={`px-2 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                  isRestricted 
+                                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                    : 'bg-slate-200 hover:bg-slate-300 dark:bg-[#131C31] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                {isRestricted ? t('Restore Hosting', 'إعادة التفعيل') : t('Restrict Hosting', 'تعليق التنظيم')}
+                              </button>
+
+                              {isBanned ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnbanPlayer(u.id, u.name)}
+                                  disabled={Boolean(actionLoadingMap[u.id])}
+                                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
+                                >
+                                  {actionLoadingMap[u.id] ? t('Unbanning...', 'جارٍ الإلغاء...') : t('Unban Player', 'رفع الحظر')}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setBanPlayerDialog({
+                                    userId: u.id,
+                                    userName: u.name,
+                                    accountHandle: u.username,
+                                    isPermanent: true,
+                                    expiresAt: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16),
+                                    reason: ''
+                                  })}
+                                  disabled={Boolean(actionLoadingMap[u.id])}
+                                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
+                                >
+                                  {t('Ban Player', 'حظر اللاعب')}
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setDeletePlayerDialog({
+                                  userId: u.id,
+                                  userName: u.name,
+                                  accountHandle: u.username,
+                                  confirmationText: '',
+                                  reason: ''
+                                })}
+                                disabled={Boolean(actionLoadingMap[u.id])}
+                                className="px-2 py-1 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-colors cursor-pointer flex items-center gap-1"
+                                title={t('Permanently Delete Player Account', 'حذف حساب اللاعب نهائياً')}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>{t('Delete', 'حذف')}</span>
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
@@ -2140,6 +2334,259 @@ export const AdminPanelModal: React.FC = () => {
                   <span>{actionLoadingMap[actionDialog.reportId] ? t('Dismissing...', 'جارٍ الرفض...') : t('Confirm Dismiss', 'تأكيد الرفض')}</span>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* BAN PLAYER CONFIRMATION DIALOG                                            */}
+      {/* ========================================================================= */}
+      {banPlayerDialog && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-slate-950/75 animate-fade-in">
+          <div 
+            className="w-full max-w-lg bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-6 space-y-4 shadow-2xl animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#22304E]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold">
+                  <Ban className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {t('Ban Player Account', 'حظر حساب اللاعب')}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {banPlayerDialog.userName} (@{banPlayerDialog.accountHandle})
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setBanPlayerDialog(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target Account Identifier */}
+            <div className="p-3 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] text-xs space-y-1">
+              <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                <span>{t('Account Identifier (UID):', 'معرف الحساب:')}</span>
+                <span className="font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">{banPlayerDialog.userId}</span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                {t(
+                  'Banning will immediately revoke match hosting, joining, and profile editing privileges across the platform.',
+                  'الحظر سيوقف فوراً صلاحيات إنشاء المباريات والانضمام إليها وتعديل الملف الشخصي.'
+                )}
+              </p>
+            </div>
+
+            {/* Ban Duration: Permanent vs Temporary */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                {t('Ban Duration:', 'مدة الحظر:')}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBanPlayerDialog(prev => prev ? { ...prev, isPermanent: true } : null)}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer text-center ${
+                    banPlayerDialog.isPermanent
+                      ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300'
+                      : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {t('Permanent Ban', 'حظر دائم')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBanPlayerDialog(prev => prev ? { ...prev, isPermanent: false } : null)}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer text-center ${
+                    !banPlayerDialog.isPermanent
+                      ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
+                      : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  {t('Temporary Ban', 'حظر مؤقت')}
+                </button>
+              </div>
+
+              {!banPlayerDialog.isPermanent && (
+                <div className="pt-2 space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                    {t('Expiration Date & Time:', 'تاريخ ووقت انتهاء الحظر:')}
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={banPlayerDialog.expiresAt}
+                    onChange={(e) => setBanPlayerDialog(prev => prev ? { ...prev, expiresAt: e.target.value } : null)}
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-[#1246DF]"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    {t('The player suspension will automatically expire once this date passes.', 'سيتم رفع الحظر تلقائياً بمجرد انتهاء هذا التاريخ.')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Ban Reason Presets & Input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                {t('Reason for Suspension (Logged in /moderationLogs):', 'سبب الحظر (يسجل في سجل الإشراف):')}
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { en: 'Repeated Match No-Show', ar: 'تكرار التخلف عن الحضور' },
+                  { en: 'Unsportsmanlike Conduct', ar: 'سلوك غير رياضي' },
+                  { en: 'Harassment or Inappropriate Chat', ar: 'مضايقات أو محادثة غير لائقة' },
+                  { en: 'Fraudulent Match Postings', ar: 'نشر مباريات وهمية' }
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setBanPlayerDialog(prev => prev ? { ...prev, reason: item.en } : null)}
+                    className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] cursor-pointer"
+                  >
+                    {language === 'ar' ? item.ar : item.en}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={banPlayerDialog.reason}
+                onChange={(e) => setBanPlayerDialog(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                rows={2}
+                placeholder={t('Enter specific reason for ban...', 'أدخل سبب الحظر بالتفصيل...')}
+                className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl p-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-[#22304E]">
+              <button
+                type="button"
+                onClick={() => setBanPlayerDialog(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+              >
+                {t('Cancel', 'إلغاء')}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBan}
+                disabled={Boolean(actionLoadingMap[banPlayerDialog.userId])}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span>{actionLoadingMap[banPlayerDialog.userId] ? t('Banning...', 'جارٍ الحظر...') : t('Confirm Ban', 'تأكيد الحظر')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DELETE PLAYER CONFIRMATION DIALOG (HIGH FRICTION)                         */}
+      {/* ========================================================================= */}
+      {deletePlayerDialog && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 animate-fade-in">
+          <div 
+            className="w-full max-w-lg bg-white dark:bg-[#131C31] border-2 border-red-500/40 rounded-2xl p-6 space-y-4 shadow-2xl animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#22304E]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 flex items-center justify-center font-bold">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-red-600 dark:text-red-400">
+                    {t('Permanently Delete Player Account', 'حذف حساب اللاعب نهائياً')}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {deletePlayerDialog.userName} (@{deletePlayerDialog.accountHandle})
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setDeletePlayerDialog(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* High Friction Irreversible Warning */}
+            <div className="p-3.5 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800 rounded-xl text-xs space-y-2 text-red-800 dark:text-red-200">
+              <p className="font-bold flex items-center gap-1.5 text-red-700 dark:text-red-300">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{t('Warning: Irreversible Administrative Destruction', 'تحذير: إجراء إداري نهائي لا يمكن الرجوع عنه')}</span>
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] text-red-700 dark:text-red-300 leading-relaxed">
+                <li>{t('Permanently deletes player authentication and Firestore profile.', 'حذف حساب المصادقة والملف الشخصي في Firestore نهائياً.')}</li>
+                <li>{t('Releases username reservation back to the system.', 'تحرير اسم المستخدم ليصبح متاحاً مرة أخرى.')}</li>
+                <li>{t('Removes hosted matches and cleans up follower references.', 'إلغاء المباريات المنظمة من قبله وتحديث سجلات المتابعين.')}</li>
+                <li>{t('An immutable audit entry will be recorded in /moderationLogs.', 'تسجيل العملية في سجل الإشراف كإجراء إداري نهائي.')}</li>
+              </ul>
+            </div>
+
+            {/* UID Info */}
+            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 px-1 font-mono">
+              <span>{t('Target UID:', 'المعرف:')}</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">{deletePlayerDialog.userId}</span>
+            </div>
+
+            {/* Optional Reason */}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                {t('Deletion Reason (for audit log):', 'سبب الحذف (للتسجيل في السجل الإشرافي):')}
+              </label>
+              <input
+                type="text"
+                value={deletePlayerDialog.reason}
+                onChange={(e) => setDeletePlayerDialog(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                placeholder={t('e.g. Account removal requested by user or fraudulent account', 'مثال: طلب حذف الحساب أو حساب غير شرعي')}
+                className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-red-500"
+              />
+            </div>
+
+            {/* Required High-Friction Confirmation Input */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-bold text-slate-900 dark:text-white block">
+                {t('Type DELETE to confirm permanent deletion:', 'اكتب DELETE لتأكيد الحذف الدائم:')}
+              </label>
+              <input
+                type="text"
+                value={deletePlayerDialog.confirmationText}
+                onChange={(e) => setDeletePlayerDialog(prev => prev ? { ...prev, confirmationText: e.target.value } : null)}
+                placeholder="DELETE"
+                className="w-full bg-red-50/50 dark:bg-red-950/30 border-2 border-red-300 dark:border-red-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-red-600 dark:text-red-400 focus:outline-none focus:border-red-600"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-[#22304E]">
+              <button
+                type="button"
+                onClick={() => setDeletePlayerDialog(null)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+              >
+                {t('Cancel', 'إلغاء')}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeletePlayer}
+                disabled={deletePlayerDialog.confirmationText.trim() !== 'DELETE' || Boolean(actionLoadingMap[deletePlayerDialog.userId])}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{actionLoadingMap[deletePlayerDialog.userId] ? t('Deleting...', 'جارٍ الحذف...') : t('Confirm Account Deletion', 'تأكيد الحذف النهائي')}</span>
+              </button>
             </div>
           </div>
         </div>

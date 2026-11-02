@@ -463,7 +463,7 @@ export const ProfileTab: React.FC = () => {
                 {authStatus === 'authenticated'
                   ? t('Verified Athlete', 'رياضي موثق')
                   : authStatus === 'demo'
-                  ? t('Demo Mode (Ahmed Al-Kandari)', 'حساب تجريبي (أحمد الكندري)')
+                  ? t('Demo Mode', 'وضع تجريبي')
                   : t('Guest Athlete', 'رياضي زائر')}
               </span>
             </div>
@@ -644,7 +644,7 @@ export const ProfileTab: React.FC = () => {
               <div className="pb-0.5 flex-1 min-w-0 w-full">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-xl sm:text-2xl font-black text-[#06135B] dark:text-[#B9C9E0] break-words">
-                    {currentUser.name}
+                    {language === 'ar' ? (currentUser.nameAr || currentUser.name) : currentUser.name}
                   </h1>
                 </div>
 
@@ -1193,7 +1193,7 @@ export const ProfileTab: React.FC = () => {
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-white">
               <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="truncate">
-                {currentUser.email || firebaseUser?.email || (authStatus === 'demo' ? 'ahmed.kandari@demo.la3ib.kw' : t('Not set', 'غير مسجل'))}
+                {currentUser.email || firebaseUser?.email || (authStatus === 'demo' ? 'demo@la3ib.kw' : t('Not set', 'غير مسجل'))}
               </span>
             </div>
           </div>

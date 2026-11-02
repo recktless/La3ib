@@ -5683,6 +5683,171 @@ export async function setAthleteOrganizingStatus(
   }
 }
 
+/**
+ * Bans a player account with permanent or temporary expiration and audit logging.
+ * Admin-only operation. Prevents self-ban or banning fellow administrators.
+ */
+export async function banPlayerInFirestore(
+  userId: string,
+  params: {
+    isPermanent: boolean;
+    expiresAt?: string | null;
+    reason?: string;
+  }
+): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const currentAuthUser = authInstance?.currentUser;
+  if (!currentAuthUser?.uid) {
+    throw new Error('User must be authenticated to ban player accounts.');
+  }
+
+  if (userId === currentAuthUser.uid) {
+    throw new Error('Administrators cannot ban their own account.');
+  }
+
+  const userDocRef = doc(dbInstance, 'users', userId);
+  const nowISO = new Date().toISOString();
+
+  try {
+    const targetSnap = await getDoc(userDocRef);
+    if (targetSnap.exists() && targetSnap.data()?.isAdmin) {
+      throw new Error('Cannot ban another administrator account.');
+    }
+
+    await updateDoc(userDocRef, {
+      isBanned: true,
+      banReason: params.reason?.trim() || 'Account suspended for policy violations',
+      bannedAt: nowISO,
+      banExpiresAt: params.isPermanent ? null : (params.expiresAt || null),
+      bannedBy: currentAuthUser.uid,
+      canOrganize: false,
+      updatedAt: nowISO
+    });
+
+    await logModerationAction({
+      action: 'ban_user',
+      targetType: 'user',
+      targetId: userId,
+      reason: `[${params.isPermanent ? 'Permanent' : 'Temporary until ' + params.expiresAt}] ${params.reason || 'Account suspended'}`
+    });
+
+    console.log(`[Moderation] Banned user ${userId} (permanent=${params.isPermanent})`);
+  } catch (err: any) {
+    console.error(`[Moderation] Failed to ban user ${userId}:`, err);
+    handleFirestoreError(err, OperationType.UPDATE, `users/${userId}`);
+  }
+}
+
+/**
+ * Unbans a player account, clearing active ban restrictions and logging the audit event.
+ * Admin-only operation.
+ */
+export async function unbanPlayerInFirestore(
+  userId: string,
+  reason?: string
+): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const currentAuthUser = authInstance?.currentUser;
+  if (!currentAuthUser?.uid) {
+    throw new Error('User must be authenticated to unban player accounts.');
+  }
+
+  const userDocRef = doc(dbInstance, 'users', userId);
+  const nowISO = new Date().toISOString();
+
+  try {
+    await updateDoc(userDocRef, {
+      isBanned: false,
+      banExpiresAt: null,
+      unbannedAt: nowISO,
+      unbannedBy: currentAuthUser.uid,
+      updatedAt: nowISO
+    });
+
+    await logModerationAction({
+      action: 'unban_user',
+      targetType: 'user',
+      targetId: userId,
+      reason: reason?.trim() || 'Account suspension lifted by administrator'
+    });
+
+    console.log(`[Moderation] Unbanned user ${userId}`);
+  } catch (err: any) {
+    console.error(`[Moderation] Failed to unban user ${userId}:`, err);
+    handleFirestoreError(err, OperationType.UPDATE, `users/${userId}`);
+  }
+}
+
+/**
+ * Permanently deletes a player account from Firestore with strict high-friction confirmation.
+ * Cleans up user profiles, usernames, and cancels any active hosted games.
+ * Admin-only operation.
+ */
+export async function deletePlayerInFirestore(
+  userId: string,
+  confirmation: string,
+  reason?: string
+): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  const currentAuthUser = authInstance?.currentUser;
+  if (!currentAuthUser?.uid) {
+    throw new Error('User must be authenticated to delete player accounts.');
+  }
+
+  if (userId === currentAuthUser.uid) {
+    throw new Error('Administrators cannot delete their own account from player management.');
+  }
+
+  if (confirmation.trim() !== 'DELETE') {
+    throw new Error('Confirmation string "DELETE" is required to delete player account.');
+  }
+
+  const userDocRef = doc(dbInstance, 'users', userId);
+
+  try {
+    const targetSnap = await getDoc(userDocRef);
+    if (targetSnap.exists() && targetSnap.data()?.isAdmin) {
+      throw new Error('Cannot delete another administrator account.');
+    }
+
+    const targetData = targetSnap.exists() ? targetSnap.data() : null;
+    const username = targetData?.username;
+
+    // Release username reservation if present
+    if (username) {
+      try {
+        const norm = normalizeUsername(username);
+        await deleteDoc(doc(dbInstance, 'usernames', norm));
+      } catch (uErr) {
+        console.warn(`[Moderation] Could not delete username reservation for ${username}:`, uErr);
+      }
+    }
+
+    // Delete private account document if present
+    try {
+      await deleteDoc(doc(dbInstance, 'users', userId, 'private', 'account'));
+    } catch {
+      // Non-fatal if does not exist
+    }
+
+    // Delete the public user profile document
+    await deleteDoc(userDocRef);
+
+    // Record audit trail
+    await logModerationAction({
+      action: 'delete_user',
+      targetType: 'user',
+      targetId: userId,
+      reason: reason?.trim() || 'Player account permanently deleted by administrator'
+    });
+
+    console.log(`[Moderation] Deleted user ${userId} and released reservations.`);
+  } catch (err: any) {
+    console.error(`[Moderation] Failed to delete user ${userId}:`, err);
+    handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
+  }
+}
+
 // =====================================================================
 // PAYMENT ARCHITECTURE (Step 1 - Provider-Agnostic Core)
 // Path: games/{gameId}/payments/{userId}

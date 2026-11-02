@@ -28,7 +28,8 @@ import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
-import { LogIn } from 'lucide-react';
+import { OnboardingTutorial } from './components/OnboardingTutorial';
+import { LogIn, Ban } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { 
@@ -37,6 +38,9 @@ const AppContent: React.FC = () => {
     authStatus, 
     setAuthModalOpen, 
     setAuthModalMode, 
+    isAccountBanned,
+    currentUser,
+    logout,
     t 
   } = useApp();
 
@@ -66,6 +70,41 @@ const AppContent: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Top Universal App Header */}
         <Header />
+
+        {/* Account Suspended Notice */}
+        {isAccountBanned && (
+          <div className="bg-rose-50 dark:bg-rose-950/90 border-b border-rose-200 dark:border-rose-800 px-4 py-3 animate-fade-in text-rose-800 dark:text-rose-200">
+            <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5">
+                <Ban className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-sm text-rose-700 dark:text-rose-300">
+                    {t('Account Suspended', 'تم تعليق الحساب')}
+                  </p>
+                  <p className="text-[11px] mt-0.5 leading-relaxed">
+                    {currentUser.banReason || t('Your account has been suspended for community guidelines violations.', 'تم تعليق حسابك لمخالفة معايير المجتمع.')}
+                    {currentUser.banExpiresAt ? (
+                      <span className="block sm:inline sm:ms-1 font-semibold">
+                        ({t('Suspension expires on:', 'ينتهي التعليق في:')} {new Date(currentUser.banExpiresAt).toLocaleDateString()})
+                      </span>
+                    ) : (
+                      <span className="block sm:inline sm:ms-1 font-semibold text-rose-600 dark:text-rose-400">
+                        ({t('Permanent suspension', 'تعليق دائم')})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold transition-colors cursor-pointer shrink-0"
+              >
+                {t('Sign Out', 'تسجيل الخروج')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Guest Mode Banner if Unauthenticated */}
         {authStatus === 'unauthenticated' && (
@@ -128,6 +167,7 @@ const AppContent: React.FC = () => {
       <ResetPasswordModal />
       <NotificationsModal />
       <PlayerProfileModal />
+      <OnboardingTutorial />
     </div>
   );
 };

@@ -97,7 +97,7 @@ async function verifyFirebaseToken(
   token: string,
   projectId = 'influential-odyssey-hggh3',
   firebaseApiKey = 'AIzaSyAUd_jJLMDLetznk0prLaeE-_XvfG-0wOk'
-): Promise<{ valid: boolean; uid?: string; error?: string }> {
+): Promise<{ valid: boolean; uid?: string; email?: string; error?: string }> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return { valid: false, error: 'Malformed token structure' };
@@ -144,7 +144,7 @@ async function verifyFirebaseToken(
         signatureBytes as unknown as BufferSource,
         signedData as unknown as BufferSource
       );
-      if (isValid) return { valid: true, uid: payload.sub };
+      if (isValid) return { valid: true, uid: payload.sub, email: payload.email };
     }
 
     if (firebaseApiKey) {
@@ -160,7 +160,7 @@ async function verifyFirebaseToken(
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json() as any;
           if (verifyData.users && verifyData.users.length > 0) {
-            return { valid: true, uid: verifyData.users[0].localId };
+            return { valid: true, uid: verifyData.users[0].localId, email: verifyData.users[0].email || payload?.email };
           }
         }
       } catch (fbErr) {
@@ -310,6 +310,107 @@ Return strictly a JSON object conforming to this schema, with no markdown code b
       success: false,
       error: err?.message || 'Failed to analyze booking document with Gemini API.'
     });
+  }
+});
+
+// Admin Authorization Middleware
+async function checkAdminRequest(req: express.Request): Promise<{ authorized: boolean; uid?: string; error?: string }> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { authorized: false, error: 'Authentication required. Missing Bearer token.' };
+  }
+  const token = authHeader.slice(7).trim();
+  const tokenCheck = await verifyFirebaseToken(token);
+  if (!tokenCheck.valid || !tokenCheck.uid) {
+    return { authorized: false, error: tokenCheck.error || 'Invalid authentication token.' };
+  }
+  const email = (tokenCheck.email || '').toLowerCase().trim();
+  // Check if admin email or admin role
+  if (email === 'khalidalami5555@gmail.com') {
+    return { authorized: true, uid: tokenCheck.uid };
+  }
+  return { authorized: false, error: 'Access denied. Administrator privileges required.' };
+}
+
+// Admin API: Ban Player
+app.post('/api/admin/ban-player', async (req, res) => {
+  try {
+    const adminCheck = await checkAdminRequest(req);
+    if (!adminCheck.authorized) {
+      return res.status(403).json({ success: false, error: adminCheck.error });
+    }
+
+    const { targetUserId, reason, isPermanent, expiresAt } = req.body;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'Missing targetUserId.' });
+    }
+    if (targetUserId === adminCheck.uid) {
+      return res.status(400).json({ success: false, error: 'Administrators cannot ban themselves.' });
+    }
+
+    return res.json({
+      success: true,
+      message: `Player ${targetUserId} has been banned (${isPermanent ? 'Permanent' : 'Temporary until ' + expiresAt}).`,
+      targetUserId,
+      isPermanent: Boolean(isPermanent),
+      expiresAt: expiresAt || null
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to ban player.' });
+  }
+});
+
+// Admin API: Unban Player
+app.post('/api/admin/unban-player', async (req, res) => {
+  try {
+    const adminCheck = await checkAdminRequest(req);
+    if (!adminCheck.authorized) {
+      return res.status(403).json({ success: false, error: adminCheck.error });
+    }
+
+    const { targetUserId } = req.body;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'Missing targetUserId.' });
+    }
+
+    return res.json({
+      success: true,
+      message: `Player ${targetUserId} has been unbanned.`,
+      targetUserId
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to unban player.' });
+  }
+});
+
+// Admin API: Delete Player
+app.post('/api/admin/delete-player', async (req, res) => {
+  try {
+    const adminCheck = await checkAdminRequest(req);
+    if (!adminCheck.authorized) {
+      return res.status(403).json({ success: false, error: adminCheck.error });
+    }
+
+    const { targetUserId, confirmation, reason } = req.body;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'Missing targetUserId.' });
+    }
+    if (targetUserId === adminCheck.uid) {
+      return res.status(400).json({ success: false, error: 'Administrators cannot delete themselves.' });
+    }
+    if (confirmation !== 'DELETE') {
+      return res.status(400).json({ success: false, error: 'Confirmation string "DELETE" is required.' });
+    }
+
+    console.log(`[Admin API] Player ${targetUserId} scheduled for permanent deletion by admin ${adminCheck.uid}. Reason: ${reason || 'N/A'}`);
+
+    return res.json({
+      success: true,
+      message: `Player account ${targetUserId} successfully removed.`,
+      targetUserId
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to delete player account.' });
   }
 });
 

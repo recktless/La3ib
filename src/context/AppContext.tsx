@@ -124,22 +124,28 @@ import {
   uploadUserBanner,
   removeUserBanner,
   submitPlayerRatingInFirestore,
-  fetchRatingsForGameAndRater
+  fetchRatingsForGameAndRater,
+  banPlayerInFirestore,
+  unbanPlayerInFirestore,
+  deletePlayerInFirestore
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
 import { resolveGameLocation, coordinatesToLatLng } from '../lib/location';
 
-const GUEST_USER: UserProfile = {
+export const GUEST_USER: UserProfile = {
   id: 'guest',
-  name: 'Guest Player',
-  nameAr: 'لاعب زائر',
+  uid: 'guest',
+  name: 'Guest',
+  nameAr: 'زائر',
   username: 'guest',
   avatar: DEFAULT_GUEST_AVATAR,
+  photoURL: undefined,
+  bannerUrl: undefined,
   area: 'Kuwait City',
-  bio: 'Sign in to create games, book courts, and track your athlete stats.',
+  bio: '',
   favoriteSports: ['Football', 'Padel'],
-  skills: { Football: 'Intermediate', Padel: 'Beginner' },
+  skills: { Football: 'Casual', Padel: 'Casual' },
   gamesPlayed: 0,
   gamesHosted: 0,
   attendanceRate: 100,
@@ -323,6 +329,10 @@ interface AppContextType {
   moderateGameCancellation: (gameId: string, reason: string, reportId?: string) => Promise<void>;
   refreshModerationQueue: () => Promise<void>;
   setAthleteOrganizingStatus: (userId: string, canOrganize: boolean, reason?: string) => Promise<void>;
+  banPlayer: (userId: string, options: { reason?: string; isPermanent: boolean; expiresAt?: string | null }) => Promise<void>;
+  unbanPlayer: (userId: string, reason?: string) => Promise<void>;
+  deletePlayer: (userId: string, confirmation: string, reason?: string) => Promise<void>;
+  isAccountBanned: boolean;
 
   // Payment Link Requests (Cost Sharing)
   paymentLinkRequests: Record<string, PaymentLinkRequest[]>;
@@ -336,6 +346,18 @@ interface AppContextType {
   removeUserBannerAction: () => Promise<void>;
   submitPlayerRating: (gameId: string, targetUserId: string, rating: number, sport?: SportType) => Promise<boolean>;
   getUserGameRatings: (gameId: string) => Promise<Record<string, number>>;
+
+  // Interactive Onboarding Tutorial
+  isTutorialOpen: boolean;
+  setIsTutorialOpen: (open: boolean) => void;
+  tutorialStep: number;
+  setTutorialStep: React.Dispatch<React.SetStateAction<number>>;
+  startTutorial: (isPreview?: boolean) => void;
+  skipTutorial: () => void;
+  completeTutorial: () => void;
+  isNewlyRegistered: boolean;
+  setIsNewlyRegistered: (val: boolean) => void;
+  isTutorialPreview: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -347,7 +369,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'forgot_password'>('login');
   const [resetPasswordModalOpen, setResetPasswordModalOpen] = useState(false);
   const [resetPasswordActionCode, setResetPasswordActionCode] = useState<string | null>(null);
-  const [isDemoActive, setIsDemoActive] = useState(true);
+  const [isDemoActive, setIsDemoActive] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
 
@@ -393,25 +415,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
-    try {
-      const saved = localStorage.getItem('la3ib_demo_user');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...CURRENT_USER,
-          ...parsed,
-          isDemoUser: true
-        };
-      }
-    } catch {
-      // fallback to CURRENT_USER
-    }
-    return {
-      ...CURRENT_USER,
-      isDemoUser: true
-    };
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile>(GUEST_USER);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [isNewlyRegistered, setIsNewlyRegistered] = useState(false);
+  const [isTutorialPreview, setIsTutorialPreview] = useState(false);
+
+  const isAccountBanned = useMemo(() => {
+    if (!currentUser || currentUser.id === 'guest') return false;
+    if (!currentUser.isBanned) return false;
+    if (!currentUser.banExpiresAt) return true; // Permanent ban
+    return new Date(currentUser.banExpiresAt).getTime() > Date.now();
+  }, [currentUser]);
   const [demoPlayers, setDemoPlayers] = useState<UserProfile[]>(MOCK_PLAYERS);
   const [firestorePlayers, setFirestorePlayers] = useState<UserProfile[]>([]);
   const [isPlayersLoading, setIsPlayersLoading] = useState<boolean>(false);
@@ -1120,6 +1135,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isAdmin = isEmailAdmin || (await checkIsAdminInFirestore());
     setCurrentUser({ ...profile, isAdmin });
     setAuthStatus('authenticated');
+    setIsNewlyRegistered(true);
+    try {
+      sessionStorage.setItem('la3ib_just_registered', user.uid);
+    } catch {}
   };
 
   const loginWithGoogleAuth = async () => {
@@ -1133,6 +1152,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuthStatus('authenticated');
   };
 
+  const completeTutorial = async () => {
+    setIsTutorialOpen(false);
+    if (isTutorialPreview) {
+      setIsTutorialPreview(false);
+      return;
+    }
+    const uid = currentUser?.uid || currentUser?.id;
+    if (uid && uid !== 'guest') {
+      try {
+        localStorage.setItem(`la3ib_onboarding_${uid}_v1`, 'true');
+        sessionStorage.removeItem('la3ib_just_registered');
+      } catch {}
+      if (isFirebaseConfigured && authStatus === 'authenticated') {
+        try {
+          await updateUserProfileInFirestore(uid, {
+            onboardingCompleted: true,
+            onboardingVersion: 1
+          });
+        } catch (err) {
+          console.warn('[Tutorial] Failed to persist onboarding in Firestore:', err);
+        }
+      }
+    }
+  };
+
+  const skipTutorial = async () => {
+    setIsTutorialOpen(false);
+    if (isTutorialPreview) {
+      setIsTutorialPreview(false);
+      return;
+    }
+    await completeTutorial();
+  };
+
+  const startTutorial = (isPreview?: boolean) => {
+    setIsTutorialPreview(Boolean(isPreview));
+    setTutorialStep(0);
+    setIsTutorialOpen(true);
+  };
+
+  // Trigger tutorial automatically ONCE for newly registered users after app is ready
+  useEffect(() => {
+    if (authStatus === 'authenticated' && currentUser && currentUser.id && currentUser.id !== 'guest') {
+      const uid = currentUser.uid || currentUser.id;
+      let isCompleted = false;
+      try {
+        isCompleted = localStorage.getItem(`la3ib_onboarding_${uid}_v1`) === 'true';
+      } catch {}
+      if (!isCompleted && currentUser.onboardingCompleted) {
+        isCompleted = true;
+      }
+      const justRegistered = isNewlyRegistered || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('la3ib_just_registered') === uid);
+      if (justRegistered && !isCompleted && !isTutorialOpen) {
+        setIsNewlyRegistered(false);
+        try {
+          sessionStorage.removeItem('la3ib_just_registered');
+        } catch {}
+        const timer = setTimeout(() => {
+          setIsTutorialOpen(true);
+          setTutorialStep(0);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [authStatus, currentUser, isNewlyRegistered, isTutorialOpen]);
+
   const logout = async () => {
     setIsDemoActive(false);
     if (firebaseUser) {
@@ -1142,6 +1227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFirebaseUser(null);
     setAuthStatus('unauthenticated');
     setCurrentUser(GUEST_USER);
+    setIsTutorialOpen(false);
     setFirestoreFollowingIds(new Set());
     setFirestoreFriendIds(new Set());
     setFirestoreFriendsList([]);
@@ -1499,6 +1585,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     court: Court,
     slot: { id: string; date: string; startTime: string; endTime: string; priceKWD: number }
   ): CourtBooking => {
+    if (isAccountBanned) {
+      throw new Error('Your account is currently suspended and restricted from booking pitches.');
+    }
     if (currentUser?.canOrganize === false) {
       throw new Error('Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.');
     }
@@ -1593,6 +1682,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Create a Game
   const createGame = async (gameData: Omit<Game, 'id' | 'createdAt' | 'organizer' | 'participants'>): Promise<Game> => {
+    if (isAccountBanned) {
+      throw new Error('Your account is currently suspended and restricted from organizing matches.');
+    }
     if (currentUser?.canOrganize === false) {
       throw new Error('Your account is currently not allowed to organize games or book pitches. Please contact an administrator for assistance.');
     }
@@ -1743,6 +1835,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Join a Game
   const joinGame = async (gameId: string, paymentMethod?: 'KNET' | 'Apple Pay' | 'Credit Card'): Promise<boolean> => {
+    if (isAccountBanned) {
+      throw new Error('Your account is currently suspended and restricted from joining matches.');
+    }
     // 1. Authentication check: If not in demo mode and not authenticated, user must sign in first
     if (!isDemoActive && !firebaseUser) {
       setAuthModalMode('login');
@@ -3096,7 +3191,94 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const banPlayer = async (
+    userId: string,
+    options: { reason?: string; isPermanent: boolean; expiresAt?: string | null }
+  ): Promise<void> => {
+    const banUpdates: Partial<UserProfile> = {
+      isBanned: true,
+      banReason: options.reason || 'Account suspended for policy violations',
+      banExpiresAt: options.isPermanent ? null : (options.expiresAt || null),
+      canOrganize: false
+    };
+
+    if (authStatus === 'authenticated' && !isDemoActive) {
+      try {
+        await banPlayerInFirestore(userId, options);
+        setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...banUpdates } : p));
+        setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...banUpdates } : p));
+        const updatedLogs = await fetchModerationLogsFromFirestore(50);
+        setModerationLogs(updatedLogs);
+      } catch (err) {
+        console.error('[AppContext] Failed to ban player:', err);
+        throw err;
+      }
+    } else {
+      // Demo Mode
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...banUpdates } : p));
+    }
+  };
+
+  const unbanPlayer = async (
+    userId: string,
+    reason?: string
+  ): Promise<void> => {
+    const unbanUpdates: Partial<UserProfile> = {
+      isBanned: false,
+      banExpiresAt: null,
+      banReason: undefined
+    };
+
+    if (authStatus === 'authenticated' && !isDemoActive) {
+      try {
+        await unbanPlayerInFirestore(userId, reason);
+        setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...unbanUpdates } : p));
+        setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...unbanUpdates } : p));
+        const updatedLogs = await fetchModerationLogsFromFirestore(50);
+        setModerationLogs(updatedLogs);
+      } catch (err) {
+        console.error('[AppContext] Failed to unban player:', err);
+        throw err;
+      }
+    } else {
+      // Demo Mode
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...unbanUpdates } : p));
+    }
+  };
+
+  const deletePlayer = async (
+    userId: string,
+    confirmation: string,
+    reason?: string
+  ): Promise<void> => {
+    if (confirmation.trim() !== 'DELETE') {
+      throw new Error('Confirmation string "DELETE" is required to delete player account.');
+    }
+
+    if (authStatus === 'authenticated' && !isDemoActive) {
+      try {
+        await deletePlayerInFirestore(userId, confirmation, reason);
+        setFirestorePlayers(prev => prev.filter(p => p.id !== userId && p.uid !== userId));
+        setDemoPlayers(prev => prev.filter(p => p.id !== userId && p.uid !== userId));
+        setFirestoreGames(prev => prev.filter(g => g.organizer?.id !== userId && (g as any).organizerId !== userId));
+        setMyFirestoreGames(prev => prev.filter(g => g.organizer?.id !== userId && (g as any).organizerId !== userId));
+        const updatedLogs = await fetchModerationLogsFromFirestore(50);
+        setModerationLogs(updatedLogs);
+      } catch (err) {
+        console.error('[AppContext] Failed to delete player:', err);
+        throw err;
+      }
+    } else {
+      // Demo Mode
+      setDemoPlayers(prev => prev.filter(p => p.id !== userId && p.uid !== userId));
+      setDemoGames(prev => prev.filter(g => g.organizer?.id !== userId && (g as any).organizerId !== userId));
+    }
+  };
+
   const updateCurrentUserProfile = async (updates: Partial<UserProfile>) => {
+    if (isAccountBanned) {
+      throw new Error('Your account is currently suspended and restricted from updating profile details.');
+    }
     // Strip privileged fields that cannot be self-assigned by a normal user
     const { isAdmin: _omitAdmin, role: _omitRole, canOrganize: _omitOrganize, ...safeUpdates } = updates as any;
     setCurrentUser(prev => {
@@ -3656,6 +3838,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         moderateGameCancellation,
         refreshModerationQueue,
         setAthleteOrganizingStatus,
+        banPlayer,
+        unbanPlayer,
+        deletePlayer,
+        isAccountBanned,
         paymentLinkRequests: demoPaymentLinkRequests,
         requestPaymentLink: handleRequestPaymentLink,
         markPaymentLinkRequestHandled: handleMarkPaymentLinkRequestHandled,
@@ -3673,7 +3859,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleSidebar,
         isDesktopSidebarCollapsed,
         setIsDesktopSidebarCollapsed,
-        toggleDesktopSidebar
+        toggleDesktopSidebar,
+        isTutorialOpen,
+        setIsTutorialOpen,
+        tutorialStep,
+        setTutorialStep,
+        startTutorial,
+        skipTutorial,
+        completeTutorial,
+        isNewlyRegistered,
+        setIsNewlyRegistered,
+        isTutorialPreview
       }}
     >
       {children}

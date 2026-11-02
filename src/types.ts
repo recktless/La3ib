@@ -100,6 +100,13 @@ export interface UserProfile {
   };
   createdAt?: string;
   updatedAt?: string;
+  onboardingCompleted?: boolean;
+  onboardingVersion?: number;
+  isBanned?: boolean;
+  banReason?: string;
+  bannedAt?: string;
+  banExpiresAt?: string | null;
+  bannedBy?: string;
 }
 
 export interface PlayerRating {
@@ -447,7 +454,10 @@ export type ModerationAction =
   | 'resolve_report'
   | 'dismiss_report'
   | 'cancel_game'
-  | 'disable_game';
+  | 'disable_game'
+  | 'ban_user'
+  | 'unban_user'
+  | 'delete_user';
 
 export interface ModerationLogEntry {
   id: string;

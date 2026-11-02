@@ -20,6 +20,8 @@ export const HomeTab: React.FC = () => {
     setCreateGameModalOpen,
     setCreateGamePrefill,
     currentUser,
+    authStatus,
+    firebaseUser,
     language,
     isDesktopSidebarCollapsed,
     t 
@@ -41,17 +43,21 @@ export const HomeTab: React.FC = () => {
     return g.status !== 'Completed' && g.status !== 'Cancelled';
   });
 
-  const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : '';
+  const isGuest = authStatus === 'unauthenticated' || !firebaseUser || currentUser.id === 'guest';
+  const guestGreeting = language === 'ar' ? 'زائر' : 'Guest';
+  const firstName = currentUser?.name && !isGuest ? currentUser.name.split(' ')[0] : '';
 
   return (
     <div className="space-y-4">
       {/* 1. Compact Social Greeting & Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+      <div data-tutorial="welcome" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-[#06135B] dark:text-white tracking-tight">
-            {firstName 
-              ? `${t('Welcome back,', 'مرحباً بك،')} ${firstName}` 
-              : t('Kuwait Sports Community', 'مجتمع الرياضة في الكويت')}
+            {isGuest
+              ? `${t('Welcome,', 'مرحباً بك،')} ${guestGreeting}`
+              : (firstName 
+                  ? `${t('Welcome back,', 'مرحباً بك،')} ${firstName}` 
+                  : t('Kuwait Sports Community', 'مجتمع الرياضة في الكويت'))}
           </h1>
           <p className="text-xs text-slate-500 dark:text-[#B9C9E0] mt-0.5">
             {selectedArea === 'All Kuwait' 

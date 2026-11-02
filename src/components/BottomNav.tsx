@@ -22,6 +22,7 @@ export const BottomNav: React.FC = () => {
         {/* 1. Home */}
         <button
           type="button"
+          data-tutorial="nav-home"
           aria-label={t('Home', 'الرئيسية')}
           onClick={() => setActiveTab('home')}
           className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
@@ -39,6 +40,7 @@ export const BottomNav: React.FC = () => {
         {/* 2. Community */}
         <button
           type="button"
+          data-tutorial="nav-community"
           aria-label={t('Community', 'المجتمع')}
           onClick={() => setActiveTab('community')}
           className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
@@ -57,6 +59,7 @@ export const BottomNav: React.FC = () => {
         <div className="flex-1 min-h-[44px] flex items-center justify-center">
           <button
             type="button"
+            data-tutorial="nav-create"
             onClick={() => {
               setCreateGamePrefill(null);
               setCreateGameModalOpen(true);
@@ -72,6 +75,7 @@ export const BottomNav: React.FC = () => {
         {/* 4. Map */}
         <button
           type="button"
+          data-tutorial="nav-map"
           aria-label={t('Map', 'الخريطة')}
           onClick={() => setActiveTab('map')}
           className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${
@@ -89,6 +93,7 @@ export const BottomNav: React.FC = () => {
         {/* 5. Profile */}
         <button
           type="button"
+          data-tutorial="nav-profile"
           aria-label={t('Profile', 'الملف')}
           onClick={() => setActiveTab('profile')}
           className={`flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 py-1 px-1 transition-colors cursor-pointer interactive-tap ${

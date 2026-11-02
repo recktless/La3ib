@@ -3,7 +3,6 @@ import { useApp } from '../context/AppContext';
 import { 
   ArrowLeft, 
   ArrowRight,
-  Settings, 
   User, 
   Key, 
   Mail, 
@@ -23,7 +22,13 @@ import {
   Sparkles,
   Sun,
   Moon,
-  Laptop
+  Laptop,
+  Bell,
+  ChevronRight,
+  HelpCircle,
+  FileText,
+  Sliders,
+  ShieldAlert
 } from 'lucide-react';
 import { resolvePlayerAvatar, ThemePreference } from '../types';
 import { mapFirebaseAuthError } from '../lib/firebase';
@@ -33,6 +38,76 @@ interface SettingsViewProps {
   onBackToProfile: () => void;
   onOpenEditProfile: () => void;
 }
+
+interface SettingsRowProps {
+  icon?: React.ComponentType<{ className?: string }>;
+  iconColor?: string;
+  iconBg?: string;
+  label: string;
+  description?: string;
+  trailing?: React.ReactNode;
+  onClick?: () => void;
+  isLast?: boolean;
+  destructive?: boolean;
+}
+
+const SettingsRow: React.FC<SettingsRowProps> = ({
+  icon: Icon,
+  iconColor = 'text-slate-600 dark:text-slate-300',
+  iconBg = 'bg-slate-100 dark:bg-[#162766]',
+  label,
+  description,
+  trailing,
+  onClick,
+  isLast = false,
+  destructive = false
+}) => {
+  const content = (
+    <div className={`flex items-center justify-between py-3 px-4 gap-3 transition-colors ${
+      onClick ? 'hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 cursor-pointer' : ''
+    }`}>
+      <div className="flex items-center gap-3 min-w-0">
+        {Icon && (
+          <div className={`w-7 h-7 rounded-lg ${iconBg} ${iconColor} flex items-center justify-center shrink-0`}>
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className={`text-xs font-semibold leading-tight truncate ${
+            destructive 
+              ? 'text-rose-600 dark:text-rose-400' 
+              : 'text-slate-900 dark:text-white'
+          }`}>
+            {label}
+          </p>
+          {description && (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      {trailing && <div className="shrink-0 flex items-center">{trailing}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          className="w-full text-start block focus:outline-none"
+        >
+          {content}
+        </button>
+      ) : (
+        content
+      )}
+      {!isLast && <div className="border-b border-slate-100 dark:border-[#162560]/50 ms-14" />}
+    </div>
+  );
+};
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   onBackToProfile,
@@ -56,6 +131,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     themePreference,
     setThemePreference,
     setActiveTab,
+    startTutorial,
     t 
   } = useApp();
 
@@ -80,6 +156,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
   const [privacySuccessNotice, setPrivacySuccessNotice] = useState<string | null>(null);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
+
+  // Blocked users expansion state
+  const [showBlockedUsersList, setShowBlockedUsersList] = useState(false);
+
+  // Notifications in-app toggle simulation (persisted in localStorage)
+  const [inAppNotifsEnabled, setInAppNotifsEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('la3ib_inapp_notifs') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleInAppNotifs = () => {
+    setInAppNotifsEnabled(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('la3ib_inapp_notifs', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Handle password reset
   const handleSendPasswordReset = async () => {
@@ -137,712 +235,564 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       });
       setPrivacySuccessNotice(
         privateMode
-          ? t('Profile privacy set to Private. Only friends can view full match history.', 'تم تعيين خصوصية الملف إلى خاص. يمكن فقط للأصدقاء مشاهدة سجل المباريات.')
-          : t('Profile privacy set to Public. Anyone on La3ib can view your sports stats.', 'تم تعيين خصوصية الملف إلى عام. يمكن لجميع الرياضيين مشاهدة إحصائياتك.')
+          ? t('Profile set to Private. Only friends view full match history.', 'تم تعيين الملف إلى خاص. يمكن للأصدقاء فقط رؤية المباريات.')
+          : t('Profile set to Public. Anyone on La3ib can view your sports stats.', 'تم تعيين الملف إلى عام. متاح لجميع الرياضيين.')
       );
       setTimeout(() => setPrivacySuccessNotice(null), 4000);
     } catch (err: any) {
-      setPrivacyError(err?.message || t('Failed to update privacy settings. Please try again.', 'فشل تحديث إعدادات الخصوصية. يرجى المحاولة مجدداً.'));
+      setPrivacyError(err?.message || t('Failed to update privacy settings.', 'فشل تحديث إعدادات الخصوصية.'));
     } finally {
       setIsUpdatingPrivacy(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Top Navigation Bar with Back Button */}
-      <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] transition-colors">
+    <div className="max-w-2xl mx-auto space-y-6 animate-fade-in pb-12">
+      {/* Top Header: Understated & Native-App Aligned */}
+      <div className="flex items-center justify-between py-2 border-b border-slate-200/80 dark:border-[#1F3590]/50">
         <button
           type="button"
           onClick={onBackToProfile}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#253352] text-slate-800 dark:text-slate-100 text-xs font-bold transition-colors cursor-pointer group border border-slate-200 dark:border-[#2A3B5C]"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer group"
           aria-label={t('Back to Profile', 'العودة للملف الرياضي')}
         >
           {language === 'ar' ? (
-            <ArrowRight className="w-4 h-4 text-[#1246DF] dark:text-[#05BCD1] group-hover:translate-x-0.5 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0] group-hover:translate-x-0.5 transition-transform" />
           ) : (
-            <ArrowLeft className="w-4 h-4 text-[#1246DF] dark:text-[#05BCD1] group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0] group-hover:-translate-x-0.5 transition-transform" />
           )}
-          <span>{t('Back to Profile', 'العودة للملف الرياضي')}</span>
+          <span>{t('Back', 'رجوع')}</span>
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-[#1246DF]/20 border border-blue-200 dark:border-[#1246DF]/30 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
-            <Settings className="w-4 h-4" />
+        <h1 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
+          {t('Settings', 'الإعدادات')}
+        </h1>
+
+        <div className="w-12" /> {/* Spacer balance */}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GROUP 1: ACCOUNT                                                          */}
+      {/* ========================================================================= */}
+      <div className="space-y-1.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
+          {t('Account', 'الحساب')}
+        </h2>
+
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          {/* Athlete Profile Summary Row */}
+          <div 
+            onClick={onOpenEditProfile}
+            className="flex items-center justify-between p-3.5 hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <img 
+                src={resolvePlayerAvatar(currentUser)} 
+                alt={currentUser.name} 
+                className="w-11 h-11 rounded-xl object-cover border border-slate-200 dark:border-[#223577] shrink-0"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                    {language === 'ar' ? (currentUser.nameAr || currentUser.name) : currentUser.name}
+                  </span>
+                  <span className="text-[10px] font-mono text-[#3A60AA] dark:text-[#B9C9E0]">@{currentUser.username}</span>
+                  {authStatus === 'authenticated' && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-[#142366] text-[#3A60AA] dark:text-[#B9C9E0] text-[10px] font-semibold border border-blue-200/50 dark:border-[#1F3590]/50">
+                      <Check className="w-2.5 h-2.5" />
+                      <span>{t('Verified', 'موثق')}</span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  {currentUser.email || firebaseUser?.email || (authStatus === 'demo' ? 'demo@la3ib.kw' : t('Guest Athlete', 'لاعب زائر'))}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 text-slate-400 shrink-0">
+              <span className="text-[11px] font-medium text-[#3A60AA] dark:text-[#B9C9E0]">
+                {t('Edit Profile', 'تعديل الملف')}
+              </span>
+              <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+            </div>
           </div>
-          <div>
-            <h1 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
-              {t('Profile Settings', 'إعدادات الملف الشخصي')}
-            </h1>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 hidden sm:block">
-              {t('Account, preferences, privacy, and community controls', 'إدارة الحساب، التفضيلات، الخصوصية، ومجتمع الرياضة')}
-            </p>
+
+          {/* Change Password Row */}
+          {authStatus === 'authenticated' && !isGoogleUser && (
+            <SettingsRow
+              icon={Key}
+              label={t('Change Password', 'تغيير كلمة المرور')}
+              description={t('Send secure password reset link to your email', 'إرسال رابط استعادة كلمة المرور')}
+              trailing={
+                <button
+                  type="button"
+                  disabled={isSendingReset}
+                  onClick={handleSendPasswordReset}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-slate-100 dark:hover:bg-[#152355] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                >
+                  {isSendingReset ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Mail className="w-3 h-3" />
+                  )}
+                  <span>{t('Reset Link', 'إرسال الرابط')}</span>
+                </button>
+              }
+            />
+          )}
+
+          {isGoogleUser && (
+            <SettingsRow
+              icon={ShieldCheck}
+              label={t('Google Account Authentication', 'المصادقة عبر Google')}
+              description={t('Your account is secured directly via Google OAuth', 'حسابك مؤمن مباشرة عبر Google OAuth')}
+              trailing={
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-[#142366] text-[#3A60AA] dark:text-[#B9C9E0] border border-blue-200/60 dark:border-[#1F3590]">
+                  Google
+                </span>
+              }
+            />
+          )}
+
+          {authStatus === 'demo' && (
+            <SettingsRow
+              icon={Sparkles}
+              label={t('Demo Account', 'حساب تجريبي')}
+              description={t('You are exploring in Demo Mode. Register to persist records.', 'أنت تتصفح في الوضع التجريبي. سجّل لحفظ بياناتك.')}
+              trailing={
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalMode('register');
+                    setAuthModalOpen(true);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-[#3A60AA] hover:bg-[#2E4D8A] text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  {t('Register', 'تسجيل')}
+                </button>
+              }
+              isLast
+            />
+          )}
+        </div>
+
+        {resetNotice && (
+          <div className="p-2.5 rounded-xl bg-blue-50/80 dark:bg-[#0D1C68]/60 border border-blue-200/60 dark:border-[#1F3590] text-[#3A60AA] dark:text-[#B9C9E0] text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            <span>{resetNotice}</span>
+          </div>
+        )}
+
+        {resetError && (
+          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+            <span>{resetError}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GROUP 2: PREFERENCES (APPEARANCE & LANGUAGE)                              */}
+      {/* ========================================================================= */}
+      <div className="space-y-1.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
+          {t('Preferences', 'التفضيلات')}
+        </h2>
+
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          {/* Appearance Row */}
+          <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                <Sun className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
+                  {t('Appearance', 'المظهر')}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                  {themePreference === 'light' 
+                    ? t('Light mode active', 'الوضع الفاتح نشط') 
+                    : themePreference === 'dark' 
+                    ? t('Dark mode active', 'الوضع الداكن نشط') 
+                    : t('Matches system appearance', 'يطابق مظهر النظام')}
+                </p>
+              </div>
+            </div>
+
+            {/* Apple-style segmented pill selector */}
+            <div className="inline-flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 self-start sm:self-center">
+              {[
+                { key: 'light', labelEn: 'Light', labelAr: 'فاتح', Icon: Sun },
+                { key: 'dark', labelEn: 'Dark', labelAr: 'داكن', Icon: Moon },
+                { key: 'system', labelEn: 'Auto', labelAr: 'تلقائي', Icon: Laptop }
+              ].map(opt => {
+                const isActive = themePreference === opt.key;
+                const OptIcon = opt.Icon;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setThemePreference(opt.key as ThemePreference)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isActive 
+                        ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs' 
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <OptIcon className="w-3 h-3" />
+                    <span>{language === 'ar' ? opt.labelAr : opt.labelEn}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Language Row */}
+          <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                <Globe className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
+                  {t('Language', 'اللغة')}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                  {language === 'ar' ? 'العربية (من اليمين لليسار)' : 'English (Left-to-Right)'}
+                </p>
+              </div>
+            </div>
+
+            {/* Language toggle buttons */}
+            <div className="inline-flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={() => setLanguage('en')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  language === 'en'
+                    ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                English
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('ar')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold font-cairo transition-all cursor-pointer ${
+                  language === 'ar'
+                    ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                العربية
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 1: ACCOUNT                                                        */}
+      {/* GROUP 3: PRIVACY & SAFETY                                                 */}
       {/* ========================================================================= */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] space-y-5 transition-colors">
-        <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100 dark:border-[#1B253D]">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-[#1246DF]/20 border border-blue-200 dark:border-[#1246DF]/30 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
-            <User className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              {t('Account', 'الحساب')}
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t('Manage your personal details, credentials, and account lifecycle.', 'إدارة بياناتك الشخصية، بيانات الاعتماد، ودورة حياة الحساب.')}
-            </p>
-          </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between px-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            {t('Privacy', 'الخصوصية')}
+          </h2>
+          <span className="text-[10px] text-slate-400 font-medium">
+            {t('Privacy & Safety', 'الخصوصية والأمان')}
+          </span>
         </div>
 
-        {/* Current Account Summary Banner */}
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <img 
-              src={resolvePlayerAvatar(currentUser)} 
-              alt={currentUser.name} 
-              className="w-12 h-12 rounded-xl object-cover border border-slate-200 dark:border-[#2A3B5C] shrink-0"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-slate-900 dark:text-white text-sm truncate">{currentUser.name}</span>
-                <span className="text-[11px] font-mono text-[#1246DF] dark:text-[#05BCD1]">@{currentUser.username}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  authStatus === 'authenticated'
-                    ? 'bg-blue-100 text-[#1246DF] dark:bg-[#1246DF]/20 dark:text-[#05BCD1] border border-blue-200 dark:border-[#1246DF]/40'
-                    : authStatus === 'demo'
-                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                    : 'bg-slate-200 text-slate-600 dark:bg-[#24324F] dark:text-slate-400'
-                }`}>
-                  {authStatus === 'authenticated'
-                    ? t('Verified', 'موثق')
-                    : authStatus === 'demo'
-                    ? t('Demo Account', 'حساب تجريبي')
-                    : t('Guest', 'زائر')}
-                </span>
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          {/* Profile Privacy Toggle Row */}
+          <div className="p-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                <Lock className="w-3.5 h-3.5" />
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                {currentUser.email || firebaseUser?.email || (authStatus === 'demo' ? 'ahmed.kandari@demo.la3ib.kw' : t('No email registered', 'لا يوجد بريد مسجل'))}
-              </p>
-            </div>
-          </div>
-
-          {/* Edit Profile Action */}
-          <button
-            type="button"
-            onClick={onOpenEditProfile}
-            className="px-3.5 py-2 rounded-xl bg-[#1246DF] hover:bg-[#0E38B8] text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-            <span>{t('Edit Profile', 'تعديل الملف الرياضي')}</span>
-          </button>
-        </div>
-
-        {/* Change Password Card */}
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Key className="w-4 h-4 text-[#1246DF] dark:text-[#05BCD1]" />
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                {t('Change Password', 'تغيير كلمة المرور')}
-              </h3>
-            </div>
-          </div>
-
-          {authStatus === 'authenticated' && !isGoogleUser && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
-              <div>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  {t('Send a secure password recovery link to your registered email address.', 'إرسال رابط آمن لاستعادة كلمة المرور إلى بريدك المسجل.')}
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
+                  {t('Profile Privacy', 'خصوصية الحساب')}
                 </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-                  {currentUser.email || firebaseUser?.email}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+                  {isPrivate 
+                    ? t('Private Profile active — switch to Public Profile anytime', 'الملف خاص — يمكنك التحويل إلى ملف عام') 
+                    : t('Public Profile active — toggle switch for Private Profile mode', 'الملف عام — يمكنك تفعيل خيار ملف خاص')}
                 </p>
               </div>
-
-              <button
-                type="button"
-                disabled={isSendingReset}
-                onClick={handleSendPasswordReset}
-                className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-[#131C31] dark:hover:bg-[#18233D] text-xs font-bold text-slate-800 dark:text-white border border-slate-200 dark:border-[#2E4166] transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
-              >
-                {isSendingReset ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Mail className="w-3.5 h-3.5 text-[#05BCD1]" />
-                )}
-                <span>{t('Send Password Reset Link', 'إرسال رابط التغيير')}</span>
-              </button>
             </div>
-          )}
 
-          {isGoogleUser && (
-            <div className="p-3 rounded-xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#2A3B5C] flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
-              <ShieldCheck className="w-4 h-4 text-[#05BCD1] shrink-0 mt-0.5" />
-              <span>
-                {t(
-                  'Your account is secured directly via Google OAuth. Passwords and security are managed in your Google Account.',
-                  'حسابك مؤمن مباشرة عبر Google OAuth. تتم إدارة كلمات المرور والأمان من خلال حساب Google.'
-                )}
-              </span>
-            </div>
-          )}
-
-          {authStatus === 'demo' && (
-            <div className="p-3 rounded-xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#2A3B5C] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-start gap-2 text-slate-700 dark:text-slate-300">
-                <Sparkles className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <span>
-                  {t(
-                    'You are exploring in Demo Mode. Password changes are disabled for the demo simulation account.',
-                    'تتصفح حالياً بالحساب التجريبي. تغيير كلمة المرور غير متاح لهذا الحساب.'
-                  )}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthModalMode('register');
-                  setAuthModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-[#1246DF] hover:bg-[#0E38B8] text-white font-bold text-xs shrink-0 cursor-pointer"
-              >
-                {t('Register Real Account', 'إنشاء حساب جديد')}
-              </button>
-            </div>
-          )}
-
-          {resetNotice && (
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[#1246DF] dark:text-[#05BCD1] text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{resetNotice}</span>
-            </div>
-          )}
-
-          {resetError && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              <span>{resetError}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Log Out Row */}
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-              <LogOut className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-              <span>{t('Log Out', 'تسجيل الخروج')}</span>
-            </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              {t('Sign out of your active session on this device.', 'تسجيل الخروج من جلستك النشطة على هذا الجهاز.')}
-            </p>
-          </div>
-
-          {!showLogoutConfirm ? (
+            {/* Apple style toggle switch */}
             <button
               type="button"
-              onClick={() => setShowLogoutConfirm(true)}
-              className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-[#131C31] dark:hover:bg-[#18233D] text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#2E4166] transition-colors cursor-pointer shrink-0"
+              role="switch"
+              aria-checked={isPrivate}
+              disabled={isUpdatingPrivacy}
+              onClick={() => handleSetProfilePrivacy(!isPrivate)}
+              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 disabled:opacity-50 ${
+                isPrivate ? 'bg-[#3A60AA]' : 'bg-slate-200 dark:bg-[#162560]'
+              }`}
             >
-              {t('Log Out', 'تسجيل الخروج')}
+              <span 
+                className={`w-5 h-5 rounded-full bg-white shadow-xs block transition-transform duration-150 absolute top-0.5 ${
+                  language === 'ar'
+                    ? (isPrivate ? 'translate-x-[-1.35rem]' : 'translate-x-[-0.15rem]')
+                    : (isPrivate ? 'translate-x-5' : 'translate-x-0.5')
+                }`} 
+              />
             </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                {t('Confirm sign out?', 'تأكيد الخروج؟')}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowLogoutConfirm(false)}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white cursor-pointer"
-              >
-                {t('Cancel', 'إلغاء')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowLogoutConfirm(false);
-                  logout();
-                }}
-                className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer"
-              >
-                {t('Yes, Sign Out', 'نعم، خروج')}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Danger Zone: Account Deletion */}
-        <div className="p-4 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-              <span>{t('Delete Account', 'حذف الحساب')}</span>
-            </h3>
-            <p className="text-[11px] text-rose-600/80 dark:text-rose-200/70 mt-0.5">
-              {t('Permanently remove your athlete profile, private settings, and social data.', 'حذف ملفك الرياضي، إعداداتك الخاصة، وبيانات حسابك بشكل نهائي.')}
-            </p>
           </div>
 
-          <button
-            type="button"
+          {/* Blocked Users Row */}
+          <div>
+            <div
+              onClick={() => setShowBlockedUsersList(prev => !prev)}
+              className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-rose-500 flex items-center justify-center shrink-0">
+                  <Ban className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
+                    {t('Blocked Users', 'اللاعبون المحظورون')}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                    {t('Manage players restricted from community contact', 'إدارة حسابات اللاعبين المحظورين')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-slate-400 shrink-0">
+                <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+                  {(blockedPlayersList || []).length}
+                </span>
+                <ChevronRight className={`w-4 h-4 transition-transform ${(showBlockedUsersList || (blockedPlayersList || []).length > 0) ? 'rotate-90' : 'rtl:rotate-180'}`} />
+              </div>
+            </div>
+
+            {/* Blocked List (automatically present if blocked players exist or when expanded) */}
+            {(showBlockedUsersList || (blockedPlayersList || []).length > 0) && (
+              <div className="bg-slate-50/60 dark:bg-[#07102D] p-3 border-t border-slate-100 dark:border-[#162560]/50 space-y-2">
+                {(blockedPlayersList || []).length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-3">
+                    {t('You have not blocked any players.', 'لم تقم بحظر أي لاعب.')}
+                  </p>
+                ) : (
+                  blockedPlayersList.map(player => {
+                    const targetId = player.id || player.uid || '';
+                    const isLoading = isBlockActionLoading(targetId);
+                    return (
+                      <div 
+                        key={targetId}
+                        className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-[#0B1536] border border-slate-200/60 dark:border-[#1F3590]/40 text-xs gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <img 
+                            src={resolvePlayerAvatar(player)} 
+                            alt={player.name} 
+                            className="w-8 h-8 rounded-lg object-cover shrink-0" 
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 dark:text-white truncate text-xs">{player.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate">@{player.username}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isLoading}
+                          onClick={() => unblockPlayer(targetId)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#142358] border border-slate-200 dark:border-[#223577] transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                        >
+                          {isLoading ? t('Lifting...', 'جارٍ الإلغاء...') : t('Unblock', 'إلغاء الحظر')}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {privacySuccessNotice && (
+          <div className="p-2.5 rounded-xl bg-blue-50/80 dark:bg-[#0D1C68]/60 border border-blue-200/60 dark:border-[#1F3590] text-[#3A60AA] dark:text-[#B9C9E0] text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            <span>{privacySuccessNotice}</span>
+          </div>
+        )}
+
+        {privacyError && (
+          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+            <span>{privacyError}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GROUP 4: NOTIFICATIONS                                                    */}
+      {/* ========================================================================= */}
+      <div className="space-y-1.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
+          {t('Notifications', 'الإشعارات')}
+        </h2>
+
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          <div className="p-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-[#3A60AA] dark:text-[#B9C9E0] flex items-center justify-center shrink-0">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
+                  {t('In-App Activity Notifications', 'إشعارات الأنشطة والتنبيهات')}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+                  {t('Game invitations, player joins, and booking confirmations', 'دعوات المباريات وتأكيدات الانضمام')}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={inAppNotifsEnabled}
+              onClick={handleToggleInAppNotifs}
+              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                inAppNotifsEnabled ? 'bg-[#3A60AA]' : 'bg-slate-200 dark:bg-[#162560]'
+              }`}
+            >
+              <span 
+                className={`w-5 h-5 rounded-full bg-white shadow-xs block transition-transform duration-150 absolute top-0.5 ${
+                  language === 'ar'
+                    ? (inAppNotifsEnabled ? 'translate-x-[-1.35rem]' : 'translate-x-[-0.15rem]')
+                    : (inAppNotifsEnabled ? 'translate-x-5' : 'translate-x-0.5')
+                }`} 
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GROUP 5: HELP & ABOUT                                                     */}
+      {/* ========================================================================= */}
+      <div className="space-y-1.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
+          {t('Help & About', 'المساعدة والمعلومات')}
+        </h2>
+
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          <SettingsRow
+            icon={ShieldCheck}
+            label={t('View Community & Safety Guidelines', 'عرض إرشادات المجتمع والسلامة')}
+            description={t('Fair play standards and sportsmanship policy in Kuwait', 'قواعد الروح الرياضية والسلامة في الكويت')}
+            onClick={() => setActiveTab('guidelines')}
+            trailing={<ChevronRight className="w-4 h-4 text-slate-400 rtl:rotate-180" />}
+          />
+
+          <SettingsRow
+            icon={Sparkles}
+            label={t('Replay Tutorial', 'إعادة الجولة التعريفية')}
+            description={t('Walkthrough features and interface highlights', 'استعراض ميزات التطبيق وطريقة الاستخدام')}
+            onClick={() => {
+              setActiveTab('home');
+              startTutorial();
+            }}
+            trailing={<ChevronRight className="w-4 h-4 text-slate-400 rtl:rotate-180" />}
+          />
+
+          <div className="p-3.5 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] flex items-center justify-center shrink-0">
+                <La3ibLogo size="xs" />
+              </div>
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-white leading-tight">La3ib / لاعب</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{t('Kuwait Pickup Sports Platform', 'منصة تنظيم الرياضة في الكويت')}</p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono text-slate-400">v1.2.0</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GROUP 6: ACCOUNT ACTIONS                                                  */}
+      {/* ========================================================================= */}
+      <div className="space-y-1.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
+          {t('Account Actions', 'إجراءات الحساب')}
+        </h2>
+
+        <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
+          {/* Sign Out Row */}
+          {!showLogoutConfirm ? (
+            <SettingsRow
+              icon={LogOut}
+              iconColor="text-slate-600 dark:text-slate-300"
+              label={t('Log Out', 'تسجيل الخروج')}
+              description={t('Sign out of your active session on this device', 'إنهاء جلستك الحالية على هذا الجهاز')}
+              onClick={() => setShowLogoutConfirm(true)}
+              trailing={<ChevronRight className="w-4 h-4 text-slate-400 rtl:rotate-180" />}
+            />
+          ) : (
+            <div className="p-3.5 flex items-center justify-between text-xs gap-2">
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                {t('Are you sure you want to sign out?', 'هل أنت متأكد من تسجيل الخروج؟')}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white cursor-pointer"
+                >
+                  {t('Cancel', 'إلغاء')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLogoutConfirm(false);
+                    logout();
+                  }}
+                  className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors cursor-pointer"
+                >
+                  {t('Log Out', 'خروج')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Account Row */}
+          <SettingsRow
+            icon={Trash2}
+            iconColor="text-rose-500"
+            iconBg="bg-rose-50 dark:bg-rose-950/40"
+            label={t('Delete Account', 'حذف الحساب')}
+            description={t('Permanently remove your athlete profile and data', 'حذف ملفك الرياضي وكافة البيانات نهائياً')}
+            destructive
             onClick={() => {
               setDeleteError(null);
               setDeletePasswordInput('');
               setShowDeleteConfirmModal(true);
             }}
-            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>{t('Delete Account', 'حذف الحساب')}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 2: PREFERENCES (APPEARANCE & LANGUAGE)                           */}
-      {/* ========================================================================= */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] space-y-6 transition-colors">
-        <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100 dark:border-[#1B253D]">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-[#1246DF]/20 border border-blue-200 dark:border-[#1246DF]/30 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
-            <Globe className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              {t('Preferences', 'التفضيلات')}
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t('Customize appearance, interface theme, and language experience.', 'تخصيص المظهر، سمة الواجهة، وتجربة اللغة.')}
-            </p>
-          </div>
-        </div>
-
-        {/* 1. Appearance / Dark Mode Selector (NEW REQUIREMENT) */}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-900 dark:text-white mb-1">
-              {t('Appearance', 'المظهر')}
-            </label>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t(
-                'Switch between Light, Dark, or System mode. Changes apply instantly and persist across sessions.',
-                'التبديل بين الوضع الفاتح، الداكن، أو التلقائي مع النظام. يتم حفظ اختيارك فوراً.'
-              )}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-            {/* Light Option */}
-            <div
-              onClick={() => setThemePreference('light')}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex items-center justify-between ${
-                themePreference === 'light'
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  themePreference === 'light'
-                    ? 'bg-[#1246DF] text-white'
-                    : 'bg-slate-200 dark:bg-[#24324F] text-slate-700 dark:text-slate-300'
-                }`}>
-                  <Sun className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">{t('Light', 'فاتح')}</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{t('Clean & bright', 'ساطع ونقي')}</p>
-                </div>
-              </div>
-              {themePreference === 'light' && (
-                <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                </div>
-              )}
-            </div>
-
-            {/* Dark Option */}
-            <div
-              onClick={() => setThemePreference('dark')}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex items-center justify-between ${
-                themePreference === 'dark'
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  themePreference === 'dark'
-                    ? 'bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950'
-                    : 'bg-slate-200 dark:bg-[#24324F] text-slate-700 dark:text-slate-300'
-                }`}>
-                  <Moon className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">{t('Dark', 'داكن')}</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{t('Deep charcoal', 'ليلي مريح')}</p>
-                </div>
-              </div>
-              {themePreference === 'dark' && (
-                <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                </div>
-              )}
-            </div>
-
-            {/* System Option */}
-            <div
-              onClick={() => setThemePreference('system')}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex items-center justify-between ${
-                themePreference === 'system'
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  themePreference === 'system'
-                    ? 'bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950'
-                    : 'bg-slate-200 dark:bg-[#24324F] text-slate-700 dark:text-slate-300'
-                }`}>
-                  <Laptop className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">{t('System', 'تلقائي')}</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{t('Follows device', 'حسب جهازك')}</p>
-                </div>
-              </div>
-              {themePreference === 'system' && (
-                <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Language Selection */}
-        <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1B253D]">
-          <div>
-            <label className="block text-xs font-bold text-slate-900 dark:text-white mb-1">
-              {t('Language', 'اللغة')}
-            </label>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t(
-                'Switch between English and Arabic immediately. Your choice is automatically saved.',
-                'التبديل بين الإنجليزية والعربية فوراً. يتم حفظ اختيارك تلقائياً عبر الجلسات.'
-              )}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {/* English Option */}
-            <div
-              onClick={() => setLanguage('en')}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex items-center justify-between ${
-                language === 'en'
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-base font-bold text-[#1246DF] dark:text-[#05BCD1]">EN</span>
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">English</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">Left-to-Right (LTR)</p>
-                </div>
-              </div>
-              {language === 'en' && (
-                <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                </div>
-              )}
-            </div>
-
-            {/* Arabic Option */}
-            <div
-              onClick={() => setLanguage('ar')}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex items-center justify-between ${
-                language === 'ar'
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-base font-bold text-[#1246DF] dark:text-[#05BCD1] font-['Cairo']">عربي</span>
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white font-['Cairo']">العربية</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">من اليمين إلى اليسار (RTL)</p>
-                </div>
-              </div>
-              {language === 'ar' && (
-                <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 3: PRIVACY & SAFETY                                               */}
-      {/* ========================================================================= */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] space-y-5 transition-colors">
-        <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100 dark:border-[#1B253D]">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-[#1246DF]/20 border border-blue-200 dark:border-[#1246DF]/30 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
-            <ShieldCheck className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              {t('Privacy & Safety', 'الخصوصية والأمان')}
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t('Control your profile visibility and manage community boundaries.', 'التحكم في ظهور ملفك وإدارة حدود التواصل الرياضي.')}
-            </p>
-          </div>
-        </div>
-
-        {/* Profile Privacy Setting */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white">
-                {t('Profile Privacy', 'خصوصية الملف الشخصي')}
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                {t(
-                  'Choose whether your full match history and stats are visible to everyone or only confirmed friends.',
-                  'اختر ما إذا كان سجل مبارياتك وإحصائياتك مرئياً للجميع أو فقط للأصدقاء المؤكدين.'
-                )}
-              </p>
-            </div>
-            {isUpdatingPrivacy && (
-              <div className="flex items-center gap-1.5 text-xs text-[#05BCD1]">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{t('Saving...', 'جارٍ الحفظ...')}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {/* Public Option */}
-            <div
-              onClick={() => handleSetProfilePrivacy(false)}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex flex-col justify-between space-y-2 ${
-                !isPrivate
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>🌍</span> {t('Public Profile', 'ملف عام')}
-                </span>
-                {!isPrivate && (
-                  <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                  </div>
-                )}
-              </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                {t(
-                  'Anyone on La3ib can view your profile, sport history, and athlete statistics.',
-                  'يمكن لأي رياضي على منصة لاعب استعراض ملفك وسجل مبارياتك وإحصائياتك.'
-                )}
-              </p>
-            </div>
-
-            {/* Private Option */}
-            <div
-              onClick={() => handleSetProfilePrivacy(true)}
-              className={`p-3.5 rounded-xl border transition-colors cursor-pointer select-none flex flex-col justify-between space-y-2 ${
-                isPrivate
-                  ? 'bg-blue-50 border-[#1246DF] dark:border-[#05BCD1] dark:bg-[#1B253D]'
-                  : 'bg-slate-50 dark:bg-[#1B253D] border-slate-200 dark:border-[#2A3B5C] hover:border-slate-300 dark:hover:border-slate-500'
-              }`}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-[#05BCD1]" /> {t('Private Profile', 'ملف خاص')}
-                </span>
-                {isPrivate && (
-                  <div className="w-4 h-4 rounded-full bg-[#1246DF] dark:bg-[#05BCD1] text-white dark:text-slate-950 flex items-center justify-center">
-                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                  </div>
-                )}
-              </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                {t(
-                  'Only confirmed friends can view your activity history, upcoming matches, and match stats.',
-                  'فقط الأصدقاء المؤكدون يمكنهم مشاهدة سجل أنشطتك، مبارياتك القادمة، وإحصائياتك.'
-                )}
-              </p>
-            </div>
-          </div>
-
-          {privacySuccessNotice && (
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[#1246DF] dark:text-[#05BCD1] text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{privacySuccessNotice}</span>
-            </div>
-          )}
-
-          {privacyError && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              <span>{privacyError}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Blocked Users Sub-Section */}
-        <div className="pt-4 border-t border-slate-100 dark:border-[#1B253D] space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Ban className="w-4 h-4 text-rose-500" />
-              <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-white">
-                  {t('Blocked Users', 'اللاعبون المحظورون')}
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {t(
-                    'Manage players you have blocked from interacting with you in the community.',
-                    'إدارة قائمة اللاعبين الذين تم حظرهم من التفاعل معك.'
-                  )}
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] text-slate-600 dark:text-slate-400 font-mono">
-              {blockedPlayersList.length}
-            </span>
-          </div>
-
-          {blockedPlayersList.length === 0 ? (
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] text-center text-xs text-slate-500 dark:text-slate-400">
-              {t('You have not blocked any players.', 'لم تقم بحظر أي لاعب.')}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {blockedPlayersList.map((player) => {
-                const targetId = player.id || player.uid || '';
-                const isLoading = isBlockActionLoading(targetId);
-
-                return (
-                  <div
-                    key={targetId}
-                    className="p-3 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img 
-                        src={resolvePlayerAvatar(player)} 
-                        alt={player.name}
-                        className="w-9 h-9 rounded-xl object-cover border border-slate-200 dark:border-[#2A3B5C] shrink-0" 
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{player.name}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">@{player.username}</p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      onClick={() => unblockPlayer(targetId)}
-                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 dark:bg-[#131C31] dark:hover:bg-[#18233D] text-xs font-bold text-slate-800 dark:text-white border border-slate-200 dark:border-[#2E4166] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                    >
-                      {isLoading ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#05BCD1]" />
-                      ) : (
-                        <UserCheck className="w-3.5 h-3.5 text-[#05BCD1]" />
-                      )}
-                      <span>{t('Unblock', 'إلغاء الحظر')}</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 4: ABOUT LA3IB — STRICT OFFICIAL BRANDING                         */}
-      {/* ========================================================================= */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] space-y-4 transition-colors">
-        <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100 dark:border-[#1B253D]">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-[#1246DF]/20 border border-blue-200 dark:border-[#1246DF]/30 text-[#1246DF] dark:text-[#05BCD1] flex items-center justify-center">
-            <La3ibLogo size="xs" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              {t('About La3ib', 'حول منصة لاعب')}
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t('Kuwait Pickup Sports & Court Booking Community', 'مجتمع تنظيم المباريات وحجز الملاعب في الكويت')}
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#2A3B5C] space-y-3">
-          <div className="flex items-center gap-3">
-            <La3ibLogo size="md" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white">La3ib</span>
-                <span className="text-slate-400 font-normal">/</span>
-                <span className="text-base sm:text-lg font-black text-[#1246DF] dark:text-[#05BCD1] font-['Cairo']">لاعب</span>
-              </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
-                {t('Kuwait Sports & Pickup Community', 'مجتمع الرياضة والحجوزات في الكويت')}
-              </p>
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            {t(
-              'La3ib connects athletes across Kuwait for casual and competitive football, padel, basketball, and more. Featuring real-time court availability, fair cost-sharing with WAMD, and verified player rosters.',
-              'منصة لاعب تجمع الرياضيين في الكويت لمباريات كرة القدم، البادل، السلة والمزيد. مع تكامل مباشر لحجز الملاعب، وتقاسم شفاف للتكاليف عبر ومض، وقوائم لاعبين موثقة.'
-            )}
-          </p>
-
-          <div className="pt-2 border-t border-slate-200/60 dark:border-[#2A3B5C]">
-            <button
-              type="button"
-              onClick={() => setActiveTab('guidelines')}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#EEF3F9] hover:bg-[#DCE5F2] dark:bg-[#142578] dark:hover:bg-[#1B3088] text-[#06135B] dark:text-white text-xs font-bold transition-colors cursor-pointer border border-[#B9C9E0]/60 dark:border-[#1F3590]"
-            >
-              <ShieldCheck className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
-              <span>{t('View Community & Safety Guidelines', 'عرض إرشادات المجتمع والسلامة')}</span>
-            </button>
-          </div>
+            trailing={<ChevronRight className="w-4 h-4 text-rose-400 rtl:rotate-180" />}
+            isLast
+          />
         </div>
       </div>
 
       {/* Delete Account Confirmation Modal */}
       {showDeleteConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 animate-fade-in">
           <div 
-            className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-rose-200 dark:border-rose-900/60 rounded-2xl p-6 shadow-xl"
+            className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-rose-200 dark:border-rose-900/60 rounded-2xl p-6 shadow-xl animate-scale-in"
             dir={language === 'ar' ? 'rtl' : 'ltr'}
           >
             <div className="flex items-center gap-3 mb-4">

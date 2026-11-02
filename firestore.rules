@@ -43,9 +43,12 @@ service cloud.firestore {
     }
 
     function canUserOrganize() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+      return (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
         !('canOrganize' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canOrganize != false;
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canOrganize != false) &&
+        (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+        !('isBanned' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned != true);
     }
 
     // Admin collection
@@ -93,7 +96,7 @@ service cloud.firestore {
           && (
             isAdmin() || 
             // Regular user cannot escalate to admin or alter administrative restrictions
-            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize']))
+            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize', 'isBanned', 'banReason', 'banExpiresAt', 'bannedAt', 'bannedBy']))
           )
         )
         ||

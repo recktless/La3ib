@@ -489,7 +489,7 @@ export const Header: React.FC = () => {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="font-bold text-slate-900 dark:text-white truncate">
-                          {currentUser.name}
+                          {language === 'ar' ? (currentUser.nameAr || currentUser.name) : currentUser.name}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-[#B9C9E0]/80 font-mono truncate">
                           @{currentUser.username}

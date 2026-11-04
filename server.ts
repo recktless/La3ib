@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import { moderateText } from './src/lib/contentModeration';
 
 dotenv.config();
 
@@ -412,6 +414,316 @@ app.post('/api/admin/delete-player', async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to delete player account.' });
   }
+});
+
+// Content Moderation API
+app.post('/api/moderate-content', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'Text field must be a string' });
+    }
+    const result = moderateText(text);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Moderation check failed.' });
+  }
+});
+
+// Admin API: Edit Game
+app.post('/api/admin/edit-game', async (req, res) => {
+  try {
+    const adminCheck = await checkAdminRequest(req);
+    if (!adminCheck.authorized) {
+      return res.status(403).json({ success: false, error: adminCheck.error });
+    }
+
+    const { gameId, updates, reason } = req.body;
+    if (!gameId) {
+      return res.status(400).json({ success: false, error: 'Missing gameId.' });
+    }
+    if (!updates || typeof updates !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing or invalid updates payload.' });
+    }
+
+    // Capacity validation if maxPlayers is changed
+    if (updates.maxPlayers !== undefined) {
+      const maxP = Number(updates.maxPlayers);
+      if (isNaN(maxP) || maxP < 2 || maxP > 50) {
+        return res.status(400).json({ success: false, error: 'Maximum player capacity must be between 2 and 50.' });
+      }
+    }
+
+    // Content moderation validation on game title / description
+    if (updates.title) {
+      const mod = moderateText(updates.title);
+      if (!mod.allowed) {
+        return res.status(400).json({ success: false, error: mod.explanationEn || 'Game title violates safety guidelines.' });
+      }
+    }
+    if (updates.description) {
+      const mod = moderateText(updates.description);
+      if (!mod.allowed) {
+        return res.status(400).json({ success: false, error: mod.explanationEn || 'Game description violates safety guidelines.' });
+      }
+    }
+
+    const modifiedFields = Object.keys(updates);
+    console.log(`[Admin API] Game ${gameId} updated by admin ${adminCheck.uid}. Fields: ${modifiedFields.join(', ')}. Reason: ${reason || 'N/A'}`);
+
+    return res.json({
+      success: true,
+      message: `Game ${gameId} parameters successfully updated by administrator.`,
+      gameId,
+      modifiedFields,
+      adminUid: adminCheck.uid
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to update game.' });
+  }
+});
+
+// Admin API: Moderate Player Profile (Strictly public, non-sensitive content only)
+app.post('/api/admin/moderate-player-profile', async (req, res) => {
+  try {
+    const adminCheck = await checkAdminRequest(req);
+    if (!adminCheck.authorized) {
+      return res.status(403).json({ success: false, error: adminCheck.error });
+    }
+
+    const { targetUserId, updates, reason } = req.body;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'Missing targetUserId.' });
+    }
+    if (!updates || typeof updates !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing or invalid updates payload.' });
+    }
+
+    // Strictly prohibited fields:
+    const prohibitedFields = ['email', 'phone', 'password', 'age', 'privacy', 'uid', 'id', 'username', 'role', 'isAdmin'];
+    const invalidKeys = Object.keys(updates).filter(k => prohibitedFields.includes(k));
+    if (invalidKeys.length > 0) {
+      return res.status(403).json({
+        success: false,
+        error: `Administrator access violation: cannot access or modify restricted private fields: ${invalidKeys.join(', ')}.`
+      });
+    }
+
+    // Permitted fields only:
+    const allowedFields = ['name', 'bio', 'avatar', 'favoriteSports', 'skills'];
+    const sanitizedUpdates: Record<string, any> = {};
+    for (const key of allowedFields) {
+      if (updates[key] !== undefined) {
+        sanitizedUpdates[key] = updates[key];
+      }
+    }
+
+    if (sanitizedUpdates.name) {
+      const mod = moderateText(sanitizedUpdates.name);
+      if (!mod.allowed) {
+        return res.status(400).json({ success: false, error: mod.explanationEn || 'Display name violates safety guidelines.' });
+      }
+    }
+    if (sanitizedUpdates.bio) {
+      const mod = moderateText(sanitizedUpdates.bio);
+      if (!mod.allowed) {
+        return res.status(400).json({ success: false, error: mod.explanationEn || 'Bio violates safety guidelines.' });
+      }
+    }
+
+    const modifiedFields = Object.keys(sanitizedUpdates);
+    console.log(`[Admin API] Player ${targetUserId} profile moderated by admin ${adminCheck.uid}. Fields: ${modifiedFields.join(', ')}. Reason: ${reason || 'N/A'}`);
+
+    return res.json({
+      success: true,
+      message: `Player ${targetUserId} public profile moderated successfully.`,
+      targetUserId,
+      modifiedFields,
+      adminUid: adminCheck.uid
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to moderate player profile.' });
+  }
+});
+
+// In-memory rate limiting map for Coming Soon Admin Bypass attempts
+const bypassAttemptMap = new Map<string, { attempts: number; blockedUntil: number }>();
+const BYPASS_SECRET = process.env.ADMIN_BYPASS_SECRET || 'la3ib_admin_bypass_secret_4709_kw_secure';
+
+function getClientIp(req: express.Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function generateAdminBypassToken(uid: string, email: string): string {
+  const payload = {
+    uid,
+    email,
+    exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+  };
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', BYPASS_SECRET).update(data).digest('base64url');
+  return `${data}.${signature}`;
+}
+
+function verifyAdminBypassToken(token: string): { valid: boolean; email?: string; uid?: string } {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return { valid: false };
+    const [data, signature] = parts;
+    const expectedSignature = crypto.createHmac('sha256', BYPASS_SECRET).update(data).digest('base64url');
+    if (signature !== expectedSignature) return { valid: false };
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
+    if (Date.now() > payload.exp) return { valid: false };
+    return { valid: true, email: payload.email, uid: payload.uid };
+  } catch {
+    return { valid: false };
+  }
+}
+
+// Admin Bypass API: Verify password 4709 + Firebase admin privilege
+app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
+  const clientIp = getClientIp(req);
+  const now = Date.now();
+  const record = bypassAttemptMap.get(clientIp);
+
+  if (record && record.blockedUntil > now) {
+    const remainingMinutes = Math.ceil((record.blockedUntil - now) / 60000);
+    return res.status(429).json({
+      success: false,
+      rateLimited: true,
+      error: `Too many failed attempts. Please wait ${remainingMinutes} minute(s) before trying again.`,
+      errorAr: `محاولات خاطئة متكررة. يرجى الانتظار لمدة ${remainingMinutes} دقيقة قبل المحاولة مرة أخرى.`
+    });
+  }
+
+  const { password, idToken } = req.body;
+
+  // 1. Check password
+  if (password !== '4709') {
+    const current = record || { attempts: 0, blockedUntil: 0 };
+    current.attempts += 1;
+    if (current.attempts >= 5) {
+      current.blockedUntil = now + 15 * 60 * 1000; // 15 mins block
+    }
+    bypassAttemptMap.set(clientIp, current);
+    return res.status(401).json({
+      success: false,
+      error: 'Incorrect administrator bypass password.',
+      errorAr: 'رمز الدخول الخاص بالإدارة غير صحيح.'
+    });
+  }
+
+  // 2. Require Firebase authentication and verified admin privileges
+  let token = idToken;
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.slice(7).trim();
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      requiresAuth: true,
+      error: 'Administrator authentication required. Please sign in with your authorized admin account.',
+      errorAr: 'يتطلب التحقق من حساب الإدارة. يرجى تسجيل الدخول بحساب مسؤول معتمد.'
+    });
+  }
+
+  const tokenCheck = await verifyFirebaseToken(token);
+  if (!tokenCheck.valid || !tokenCheck.uid) {
+    return res.status(403).json({
+      success: false,
+      requiresAuth: true,
+      error: 'Invalid or expired administrator authentication session.',
+      errorAr: 'جلسة تسجيل دخول المسؤول غير صالحة أو منتهية الصلاحية.'
+    });
+  }
+
+  const email = (tokenCheck.email || '').toLowerCase().trim();
+  if (email !== 'khalidalami5555@gmail.com') {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: this account does not possess verified administrator privileges.',
+      errorAr: 'تم رفض الوصول: هذا الحساب ليس لديه صلاحيات مسؤول معتمد.'
+    });
+  }
+
+  // Success: Clear rate-limit attempts
+  bypassAttemptMap.delete(clientIp);
+
+  // Generate cryptographic bypass token
+  const bypassToken = generateAdminBypassToken(tokenCheck.uid, email);
+  console.log(`[Admin Bypass] Administrator ${email} successfully bypassed Coming Soon mode.`);
+
+  return res.json({
+    success: true,
+    bypassToken,
+    adminEmail: email,
+    message: 'Administrator bypass access granted.'
+  });
+});
+
+// Admin Bypass API: Validate existing bypass session
+app.post('/api/admin/check-coming-soon-bypass', (req, res) => {
+  const token = req.body?.token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null);
+  if (!token) {
+    return res.json({ valid: false });
+  }
+  const result = verifyAdminBypassToken(token);
+  return res.json(result);
+});
+
+// Dynamic Open Graph and direct invite endpoint for /game/:gameId
+app.get('/game/:gameId', async (req, res, next) => {
+  const { gameId } = req.params;
+  const isProd = process.env.NODE_ENV === 'production';
+  const userAgent = req.headers['user-agent'] || '';
+  const isSocialCrawler = /facebookexternalhit|whatsapp|telegrambot|twitterbot|slackbot|discordbot|applebot|linkedinbot/i.test(userAgent);
+  const title = `Join Match on La3ib | لاعب`;
+  const description = `Join pickup games and court bookings in Kuwait on La3ib. Stable invitation link: https://la3ibkw.com/game/${encodeURIComponent(gameId)}`;
+  const url = `https://la3ibkw.com/game/${encodeURIComponent(gameId)}`;
+
+  if (isSocialCrawler) {
+    const crawlerHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${title}</title>
+  <meta name="description" content="${description}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="${url}" />
+  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${description}" />
+  <meta property="og:site_name" content="La3ib | لاعب" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${title}" />
+  <meta name="twitter:description" content="${description}" />
+</head>
+<body>
+  <p>${description}</p>
+  <p><a href="${url}">Open Game in La3ib</a></p>
+</body>
+</html>`;
+    return res.status(200).type('html').send(crawlerHtml);
+  }
+
+  if (isProd) {
+    try {
+      const fs = await import('fs/promises');
+      const indexPath = path.resolve(__dirname, 'dist', 'index.html');
+      let html = await fs.readFile(indexPath, 'utf-8');
+      html = html
+        .replace(/<title>.*?<\/title>/, `<title>${title}</title>`)
+        .replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${title}" />`)
+        .replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${description}" />`)
+        .replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${title}" />`);
+      return res.send(html);
+    } catch {
+      return next();
+    }
+  }
+  next();
 });
 
 async function start() {

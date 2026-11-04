@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -18,6 +18,7 @@ import { ProfileTab } from './components/ProfileTab';
 import { BookDirectlyTab } from './components/BookDirectlyTab';
 import { CommunityGuidelinesTab } from './components/CommunityGuidelinesTab';
 import { BrandedLoader } from './components/BrandedLoader';
+import { getGameFromFirestore } from './lib/firebase';
 
 // Modals
 import { CreateGameModal } from './components/CreateGameModal';
@@ -29,9 +30,12 @@ import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
-import { LogIn, Ban } from 'lucide-react';
+import { LogIn, Ban, AlertCircle, X } from 'lucide-react';
+import { COMING_SOON_MODE, ADMIN_BYPASS_STORAGE_KEY } from './config/launchMode';
+import { ComingSoonPage } from './components/coming-soon/ComingSoonPage';
+import { AdminBypassBanner } from './components/coming-soon/AdminBypassBanner';
 
-const AppContent: React.FC = () => {
+export const AppContent: React.FC = () => {
   const { 
     activeTab, 
     language, 
@@ -41,8 +45,12 @@ const AppContent: React.FC = () => {
     isAccountBanned,
     currentUser,
     logout,
+    games,
+    setSelectedGameForDetail,
     t 
   } = useApp();
+
+  const [deepLinkToast, setDeepLinkToast] = useState<{ message: string; messageAr: string } | null>(null);
 
   // Enforce browser tab title strictly as "La3ib" across all routes
   useEffect(() => {
@@ -50,6 +58,109 @@ const AppContent: React.FC = () => {
       document.title = 'La3ib';
     }
   }, [activeTab]);
+
+  // Auto-dismiss deep-link toast after 4.5 seconds
+  useEffect(() => {
+    if (!deepLinkToast) return;
+    const timer = setTimeout(() => {
+      setDeepLinkToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [deepLinkToast]);
+
+  // Deep-linking support for https://la3ibkw.com/game/{gameId} or ?game={gameId}
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let targetGameId: string | null = null;
+    const pathMatch = window.location.pathname.match(/^\/game\/([a-zA-Z0-9_-]+)/i);
+    if (pathMatch && pathMatch[1]) {
+      targetGameId = pathMatch[1];
+    } else {
+      const searchParams = new URLSearchParams(window.location.search);
+      targetGameId = searchParams.get('game') || searchParams.get('gameId');
+    }
+
+    if (!targetGameId) return;
+
+    let isCancelled = false;
+
+    const handleDeepLink = async () => {
+      // 1. Try finding in loaded games
+      let foundGame = games.find(g => g.id === targetGameId);
+
+      // 2. Fallback to Firestore fetch if not in initial local list
+      if (!foundGame) {
+        try {
+          const remoteGame = await getGameFromFirestore(targetGameId);
+          if (remoteGame) {
+            foundGame = remoteGame;
+          }
+        } catch (err) {
+          console.warn('[DeepLink] Error fetching game:', err);
+        }
+      }
+
+      if (isCancelled) return;
+
+      if (!foundGame) {
+        // Game does not exist or has been deleted
+        setDeepLinkToast({
+          message: 'Game not found or has been removed.',
+          messageAr: 'المباراة غير موجودة أو تم حذفها.'
+        });
+        window.history.replaceState({}, document.title, '/');
+        return;
+      }
+
+      if (foundGame.status === 'Cancelled') {
+        // Cancelled game
+        setDeepLinkToast({
+          message: 'This game has been cancelled by the organizer.',
+          messageAr: 'تم إلغاء هذه المباراة من قِبل المنظم.'
+        });
+        window.history.replaceState({}, document.title, '/');
+        return;
+      }
+
+      // Valid game: open details modal
+      setSelectedGameForDetail(foundGame);
+
+      // If user is guest, preserve target game ID for when they sign in
+      if (authStatus === 'unauthenticated') {
+        try {
+          sessionStorage.setItem('la3ib_pending_game_id', foundGame.id);
+        } catch {}
+      }
+    };
+
+    handleDeepLink();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [games, authStatus, setSelectedGameForDetail]);
+
+  // If user signs in after following an invitation deep link as guest, resume their destination
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      try {
+        const pendingGameId = sessionStorage.getItem('la3ib_pending_game_id') || sessionStorage.getItem('la3ib_pending_invite_game');
+        if (pendingGameId) {
+          sessionStorage.removeItem('la3ib_pending_game_id');
+          sessionStorage.removeItem('la3ib_pending_invite_game');
+          const matched = games.find(g => g.id === pendingGameId);
+          if (matched) {
+            setSelectedGameForDetail(matched);
+          } else {
+            getGameFromFirestore(pendingGameId).then(g => {
+              if (g) setSelectedGameForDetail(g);
+            }).catch(console.warn);
+          }
+        }
+      } catch {}
+    }
+  }, [authStatus, games, setSelectedGameForDetail]);
 
   // Initial branded loading experience with La3ib logo
   if (authStatus === 'loading') {
@@ -67,7 +178,28 @@ const AppContent: React.FC = () => {
       <Sidebar />
 
       {/* 2. Main Content Stream Area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen relative">
+        {/* Deep Link & System Toast Feedback */}
+        {deepLinkToast && (
+          <aside 
+            aria-label={language === 'ar' ? deepLinkToast.messageAr : deepLinkToast.message}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white shadow-xl border border-slate-700/50 flex items-center justify-between gap-3 animate-fade-in text-xs sm:text-sm"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span className="truncate">{language === 'ar' ? deepLinkToast.messageAr : deepLinkToast.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeepLinkToast(null)}
+              className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              aria-label="Close notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </aside>
+        )}
+
         {/* Top Universal App Header */}
         <Header />
 
@@ -173,8 +305,94 @@ const AppContent: React.FC = () => {
 };
 
 export default function App() {
+  const [adminBypassed, setAdminBypassed] = useState<boolean>(() => {
+    if (!COMING_SOON_MODE) return true;
+    try {
+      const stored = sessionStorage.getItem(ADMIN_BYPASS_STORAGE_KEY) || localStorage.getItem(ADMIN_BYPASS_STORAGE_KEY);
+      return Boolean(stored);
+    } catch {
+      return false;
+    }
+  });
+
+  const [adminEmail, setAdminEmail] = useState<string | undefined>(() => {
+    try {
+      return sessionStorage.getItem('la3ib_admin_bypass_email') || localStorage.getItem('la3ib_admin_bypass_email') || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+
+  // Verify stored token with backend on mount
+  useEffect(() => {
+    if (!COMING_SOON_MODE || !adminBypassed) return;
+    const token = sessionStorage.getItem(ADMIN_BYPASS_STORAGE_KEY) || localStorage.getItem(ADMIN_BYPASS_STORAGE_KEY);
+    if (!token) {
+      setAdminBypassed(false);
+      return;
+    }
+
+    fetch('/api/admin/check-coming-soon-bypass', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.valid) {
+          try {
+            sessionStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
+            localStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
+            sessionStorage.removeItem('la3ib_admin_bypass_email');
+            localStorage.removeItem('la3ib_admin_bypass_email');
+          } catch {}
+          setAdminBypassed(false);
+        } else if (data.email) {
+          setAdminEmail(data.email);
+        }
+      })
+      .catch(() => {
+        // Retain current session on transient network error
+      });
+  }, [adminBypassed]);
+
+  const handleBypassSuccess = (token: string, email?: string) => {
+    try {
+      sessionStorage.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
+      localStorage.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
+      if (email) {
+        sessionStorage.setItem('la3ib_admin_bypass_email', email);
+        localStorage.setItem('la3ib_admin_bypass_email', email);
+        setAdminEmail(email);
+      }
+    } catch {}
+    setAdminBypassed(true);
+  };
+
+  const handleReturnToComingSoon = () => {
+    try {
+      sessionStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
+      localStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
+      sessionStorage.removeItem('la3ib_admin_bypass_email');
+      localStorage.removeItem('la3ib_admin_bypass_email');
+    } catch {}
+    setAdminBypassed(false);
+  };
+
+  // If Coming Soon mode is active and administrator has not bypassed, render the Landing Page
+  if (COMING_SOON_MODE && !adminBypassed) {
+    return <ComingSoonPage onBypassSuccess={handleBypassSuccess} />;
+  }
+
+  // Full application (accessed when COMING_SOON_MODE is false, or by an authorized administrator)
   return (
     <AppProvider>
+      {COMING_SOON_MODE && adminBypassed && (
+        <AdminBypassBanner
+          onReturnToComingSoon={handleReturnToComingSoon}
+          adminEmail={adminEmail}
+        />
+      )}
       <AppContent />
     </AppProvider>
   );

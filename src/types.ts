@@ -457,7 +457,11 @@ export type ModerationAction =
   | 'disable_game'
   | 'ban_user'
   | 'unban_user'
-  | 'delete_user';
+  | 'delete_user'
+  | 'edit_game'
+  | 'moderate_profile'
+  | 'restrict_organizer'
+  | 'restore_organizer';
 
 export interface ModerationLogEntry {
   id: string;
@@ -468,8 +472,40 @@ export interface ModerationLogEntry {
   reportId?: string;
   reason?: string;
   resolution?: string;
+  modifiedFields?: string[];
+  details?: string;
   createdAt: string;
   createdAtISO: string;
+}
+
+export interface AdminGameEditInput {
+  title?: string;
+  description?: string;
+  sport?: SportType;
+  skillLevel?: SkillLevel;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  courtName?: string;
+  area?: KuwaitArea | string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  maxPlayers?: number;
+  status?: GameStatus;
+  visibility?: GameVisibility;
+  costSharing?: GameCostSharing;
+  totalCourtCostKWD?: number;
+  pricePerPlayerKWD?: number;
+}
+
+export interface AdminProfileModerationInput {
+  name?: string;
+  nameAr?: string;
+  bio?: string;
+  avatar?: string;
+  favoriteSports?: SportType[];
+  skills?: { [key in SportType]?: SkillLevel };
 }
 
 export interface BlockedPlayerRecord {

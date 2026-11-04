@@ -85,15 +85,19 @@ import type {
   CostSharingMethod,
   GameCostSharing,
   PaymentLinkRequest,
-  PaymentLinkRequestStatus
+  PaymentLinkRequestStatus,
+  AdminGameEditInput,
+  AdminProfileModerationInput
 } from '../types';
 import {
+  DEFAULT_GUEST_AVATAR,
   getCostSharingMethods,
   isCostSharingMethodSelected,
   isValidKuwaitMobile,
   formatKuwaitMobile
 } from '../types';
 import { resolveGameLocation } from './location';
+import { moderateText, checkRateLimitAndSpam } from './contentModeration';
 
 // Structured Firestore error interface required by Firebase guidelines
 export enum OperationType {
@@ -1102,6 +1106,21 @@ export async function updateUserProfileInFirestore(
   // Separate sensitive account fields (email) from public profile updates
   // Strictly sanitize privileged fields: normal user profile updates cannot touch isAdmin, role, or canOrganize
   const { email, username, isAdmin: _omitAdmin, role: _omitRole, canOrganize: _omitOrganize, ...publicUpdates } = updates as any;
+
+  // Validate public user-generated text through content moderation
+  if (publicUpdates.name) {
+    const mod = moderateText(publicUpdates.name);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Display name violates community safety guidelines.');
+    }
+  }
+  if (publicUpdates.bio) {
+    const mod = moderateText(publicUpdates.bio);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Bio violates community safety guidelines.');
+    }
+  }
+
   const payload: Record<string, any> = {
     ...publicUpdates,
     updatedAt: nowISO
@@ -1548,6 +1567,16 @@ export async function createGameInFirestore(
 
   // Validate required fields
   if (!gameInput.title?.trim()) throw new Error('Game title is required.');
+  const titleMod = moderateText(gameInput.title);
+  if (!titleMod.allowed) {
+    throw new Error(titleMod.explanationEn || 'Game title violates community safety guidelines.');
+  }
+  if (gameInput.description) {
+    const descMod = moderateText(gameInput.description);
+    if (!descMod.allowed) {
+      throw new Error(descMod.explanationEn || 'Game description violates community safety guidelines.');
+    }
+  }
   if (!gameInput.sport) throw new Error('Sport is required.');
   if (!gameInput.date) throw new Error('Date is required.');
   if (!gameInput.startTime) throw new Error('Start time is required.');
@@ -2480,7 +2509,18 @@ export async function updateGameInFirestore(
     }
 
     if (updates.title !== undefined && updates.title.trim()) {
+      const titleMod = moderateText(updates.title);
+      if (!titleMod.allowed) {
+        throw new Error(titleMod.explanationEn || 'Game title violates community safety guidelines.');
+      }
       payload.title = updates.title.trim();
+    }
+    if (updates.description !== undefined) {
+      const descMod = moderateText(updates.description);
+      if (!descMod.allowed) {
+        throw new Error(descMod.explanationEn || 'Game description violates community safety guidelines.');
+      }
+      payload.description = updates.description.trim();
     }
     // Li3ib Booking Security: Verify locked court, sport, location, date, and times
     const isLi3ibGame = Boolean(data.linkedBookingId);
@@ -2605,6 +2645,280 @@ export async function updateGameInFirestore(
   }
 
   return updatedGame;
+}
+
+/**
+ * Administrator Game Editing Capability
+ * Allows administrators to edit:
+ * - Game name (title) and description
+ * - Sport and skill level
+ * - Date, time, and duration
+ * - Venue and map location
+ * - Maximum player capacity (strictly prevented from setting below number of participants)
+ * - Game status and visibility
+ * - Cost-sharing settings
+ * 
+ * Synchronizes with Firestore in real time.
+ * Enforces booking-related restrictions and logs all admin actions to moderationLogs.
+ */
+export async function adminEditGameInFirestore(
+  gameId: string,
+  updates: AdminGameEditInput,
+  adminUid: string,
+  reason = 'Admin updated match details'
+): Promise<Game> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  if (!adminUid) throw new Error('Admin credentials required.');
+
+  const gameDocRef = doc(dbInstance, 'games', gameId);
+  const nowISO = new Date().toISOString();
+
+  // Validate moderation on content
+  if (updates.title) {
+    const mod = moderateText(updates.title);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Game title violates safety guidelines.');
+    }
+  }
+  if (updates.description) {
+    const mod = moderateText(updates.description);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Game description violates safety guidelines.');
+    }
+  }
+
+  const updatedGame = await runTransaction(dbInstance, async (transaction) => {
+    const gameSnap = await transaction.get(gameDocRef);
+    if (!gameSnap.exists()) {
+      throw new Error('Game does not exist.');
+    }
+
+    const data = gameSnap.data();
+    const currentParticipants = Array.isArray(data.participants) ? data.participants : [];
+    const currentCount = currentParticipants.length;
+
+    const payload: Record<string, any> = {
+      updatedAt: serverTimestamp(),
+      updatedAtISO: nowISO
+    };
+
+    // Capacity validation: strictly prevent capacity below current participants
+    if (updates.maxPlayers !== undefined) {
+      const newMax = Number(updates.maxPlayers);
+      if (isNaN(newMax) || newMax < 2 || newMax > 50) {
+        throw new Error('Max players must be between 2 and 50.');
+      }
+      if (newMax < currentCount) {
+        throw new Error(`Cannot set capacity to ${newMax}: ${currentCount} players are currently registered.`);
+      }
+      payload.maxPlayers = newMax;
+      if (data.status === 'Open' || data.status === 'Almost Full' || data.status === 'Full') {
+        payload.status = currentCount >= newMax ? 'Full' : (currentCount >= newMax - 1 ? 'Almost Full' : 'Open');
+      }
+    }
+
+    if (updates.title !== undefined && updates.title.trim()) {
+      payload.title = updates.title.trim();
+    }
+    if (updates.description !== undefined) {
+      payload.description = updates.description.trim();
+    }
+    if (updates.sport !== undefined) {
+      payload.sport = updates.sport;
+    }
+    if (updates.skillLevel !== undefined) {
+      payload.skillLevel = updates.skillLevel;
+    }
+    if (updates.visibility !== undefined) {
+      payload.visibility = updates.visibility;
+    }
+    if (updates.status !== undefined) {
+      payload.status = updates.status;
+    }
+    if (updates.date !== undefined && updates.date.trim()) {
+      payload.date = updates.date.trim();
+    }
+    if (updates.startTime !== undefined && updates.startTime.trim()) {
+      payload.startTime = updates.startTime.trim();
+    }
+    if (updates.endTime !== undefined && updates.endTime.trim()) {
+      payload.endTime = updates.endTime.trim();
+    }
+    if (updates.courtName !== undefined && updates.courtName.trim()) {
+      payload.courtName = updates.courtName.trim();
+      payload.venue = updates.courtName.trim();
+    }
+    if (updates.area !== undefined && updates.area.trim()) {
+      payload.area = updates.area.trim();
+    }
+    if (updates.address !== undefined) {
+      payload.address = updates.address.trim();
+    }
+
+    if (updates.latitude !== undefined || updates.longitude !== undefined) {
+      const resolved = resolveGameLocation({
+        latitude: updates.latitude ?? data.latitude,
+        longitude: updates.longitude ?? data.longitude,
+        area: updates.area ?? data.area,
+        courtName: updates.courtName ?? data.courtName,
+        address: updates.address ?? data.address
+      });
+      payload.coordinates = resolved.coordinates;
+      payload.latitude = resolved.latitude;
+      payload.longitude = resolved.longitude;
+    }
+
+    if (updates.pricePerPlayerKWD !== undefined) {
+      const price = Math.max(0, Number(updates.pricePerPlayerKWD));
+      payload.pricePerPlayerKWD = price;
+      payload.pricePerPlayer = price;
+    }
+    if (updates.totalCourtCostKWD !== undefined) {
+      const total = Math.max(0, Number(updates.totalCourtCostKWD));
+      payload.totalCourtCostKWD = total;
+      payload.totalCost = total;
+    }
+
+    if (updates.costSharing !== undefined) {
+      payload.costSharing = {
+        enabled: Boolean(updates.costSharing.enabled),
+        methods: updates.costSharing.methods || [],
+        method: updates.costSharing.method,
+        estimatedShare: updates.costSharing.estimatedShare !== undefined ? Number(updates.costSharing.estimatedShare) : undefined,
+        currency: updates.costSharing.currency || 'KWD'
+      };
+    }
+
+    transaction.update(gameDocRef, payload);
+
+    return mapFirestoreDocToGame(gameId, {
+      ...data,
+      ...payload,
+      updatedAtISO: nowISO
+    });
+  });
+
+  // Handle WAMD phone number in cost sharing subcollection if specified
+  if (updates.costSharing?.enabled && isCostSharingMethodSelected(updates.costSharing, 'wamd') && updates.costSharing.wamdPhoneNumber) {
+    try {
+      await saveGameWamdDetailsInFirestore({
+        gameId,
+        hostId: updatedGame.organizer.id || adminUid,
+        wamdPhoneNumber: updates.costSharing.wamdPhoneNumber
+      });
+    } catch (wErr) {
+      console.warn('[Admin Edit Game] Notice saving WAMD details:', wErr);
+    }
+  }
+
+  // Audit Logging
+  try {
+    await logModerationAction({
+      action: 'edit_game',
+      targetType: 'game',
+      targetId: gameId,
+      reason,
+      modifiedFields: Object.keys(updates)
+    });
+  } catch (logErr) {
+    console.warn('[Admin Edit Game] Failed to write audit log:', logErr);
+  }
+
+  return updatedGame;
+}
+
+/**
+ * Administrator Player Profile Moderation Capability
+ * Strictly permits editing of only public, non-sensitive content:
+ * - Display name (name)
+ * - Bio
+ * - Public profile picture (avatar / photoURL)
+ * - Favorite sports (favoriteSports)
+ * - Public skill levels (skills)
+ *
+ * Strictly prohibits access to:
+ * - Email, phone, passwords, auth info, private documents, payment info, account settings, age/dob.
+ * Logs all actions with admin UID, target ID, timestamp, and modified field names.
+ */
+export async function adminModeratePlayerProfileInFirestore(
+  targetUserId: string,
+  updates: AdminProfileModerationInput,
+  adminUid: string,
+  reason = 'Admin moderated public profile content'
+): Promise<void> {
+  if (!dbInstance) throw new Error('Firestore is not initialized.');
+  if (!adminUid) throw new Error('Admin credentials required.');
+  if (!targetUserId) throw new Error('Target user ID is required.');
+
+  // Strict field isolation: reject any sensitive or private fields
+  const allowedKeys = new Set(['name', 'nameAr', 'bio', 'avatar', 'favoriteSports', 'skills']);
+  const requestedKeys = Object.keys(updates);
+  const forbiddenKeys = requestedKeys.filter(k => !allowedKeys.has(k));
+  if (forbiddenKeys.length > 0) {
+    throw new Error(`Security Exception: Administrators are prohibited from modifying non-public fields: ${forbiddenKeys.join(', ')}`);
+  }
+
+  const payload: Record<string, any> = {
+    updatedAt: new Date().toISOString()
+  };
+
+  if (updates.name !== undefined) {
+    const mod = moderateText(updates.name);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Display name violates safety guidelines.');
+    }
+    payload.name = updates.name.trim();
+  }
+
+  if (updates.nameAr !== undefined) {
+    if (updates.nameAr.trim()) {
+      const mod = moderateText(updates.nameAr);
+      if (!mod.allowed) {
+        throw new Error(mod.explanationEn || 'Arabic name violates safety guidelines.');
+      }
+      payload.nameAr = updates.nameAr.trim();
+    } else {
+      payload.nameAr = '';
+    }
+  }
+
+  if (updates.bio !== undefined) {
+    const mod = moderateText(updates.bio);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Bio violates safety guidelines.');
+    }
+    payload.bio = updates.bio.trim();
+  }
+
+  if (updates.avatar !== undefined) {
+    // If empty string or removed, reset to neutral default silhouette
+    payload.avatar = updates.avatar.trim() || DEFAULT_GUEST_AVATAR;
+    payload.photoURL = updates.avatar.trim() || DEFAULT_GUEST_AVATAR;
+  }
+
+  if (updates.favoriteSports !== undefined && Array.isArray(updates.favoriteSports)) {
+    payload.favoriteSports = updates.favoriteSports;
+  }
+
+  if (updates.skills !== undefined && typeof updates.skills === 'object') {
+    payload.skills = updates.skills;
+  }
+
+  const userDocRef = doc(dbInstance, 'users', targetUserId);
+  await updateDoc(userDocRef, payload);
+
+  // Write audit log
+  try {
+    await logModerationAction({
+      action: 'moderate_profile',
+      targetType: 'user',
+      targetId: targetUserId,
+      reason,
+      modifiedFields: requestedKeys
+    });
+  } catch (logErr) {
+    console.warn('[Admin Profile Moderation] Notice logging moderation action:', logErr);
+  }
 }
 
 /**
@@ -3138,6 +3452,18 @@ export async function sendGameChatMessage(
   }
   if (!message.text?.trim()) {
     throw new Error('Message text cannot be empty.');
+  }
+
+  // 1. Centralized Content Moderation
+  const modResult = moderateText(message.text);
+  if (!modResult.allowed) {
+    throw new Error(modResult.explanationEn || 'Message violates community safety guidelines.');
+  }
+
+  // 2. Anti-Spam and Rate Limiting
+  const rateResult = checkRateLimitAndSpam(currentUser.uid, message.text);
+  if (!rateResult.allowed) {
+    throw new Error(rateResult.explanationEn || 'Message rate limit exceeded. Please wait a moment.');
   }
 
   const messagesCol = collection(dbInstance, 'games', gameId, 'messages');
@@ -5092,6 +5418,8 @@ export async function logModerationAction(entry: {
   reportId?: string;
   reason?: string;
   resolution?: string;
+  modifiedFields?: string[];
+  details?: string;
 }): Promise<string> {
   if (!dbInstance) throw new Error('Firestore is not initialized.');
   const currentAuthUser = authInstance?.currentUser;
@@ -5116,6 +5444,8 @@ export async function logModerationAction(entry: {
   if (entry.reportId) payload.reportId = entry.reportId;
   if (entry.reason) payload.reason = entry.reason.trim();
   if (entry.resolution) payload.resolution = entry.resolution.trim();
+  if (entry.modifiedFields && Array.isArray(entry.modifiedFields)) payload.modifiedFields = entry.modifiedFields;
+  if (entry.details) payload.details = entry.details.trim();
 
   try {
     await setDoc(logRef, payload);

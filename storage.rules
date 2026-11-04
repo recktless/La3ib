@@ -8,6 +8,12 @@ service firebase.storage {
         && request.auth.uid == userId
         && request.resource.size < 5 * 1024 * 1024 // 5MB max
         && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null
+        && (
+          request.auth.uid == userId ||
+          request.auth.token.email == "Khalidalami5555@gmail.com" ||
+          firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid))
+        );
     }
 
     // Venue photos: /venues/{venueId}/{fileName}

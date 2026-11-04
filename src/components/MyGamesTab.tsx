@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Game, SportType, getSportLabel, getKuwaitAreaLabel, formatPlayerRating, resolvePlayerAvatar, formatTimeRange12Hour } from '../types';
 import { isGamePast } from '../lib/firebase';
+import { shareGame } from '../lib/sharing';
 
 export const MyGamesTab: React.FC<{ defaultSubTab?: 'upcoming' | 'past' | 'bookings' }> = ({
   defaultSubTab = 'upcoming'
@@ -366,8 +367,8 @@ export const MyGamesTab: React.FC<{ defaultSubTab?: 'upcoming' | 'past' | 'booki
                     onClick={() => setSelectedGameForDetail(game)}
                     className="p-5 rounded-2xl bg-white dark:bg-[#0D1629] hover:border-[#3A60AA] border border-slate-200/80 dark:border-slate-800 shadow-xs transition-colors space-y-3 cursor-pointer group min-w-0"
                   >
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-[10px] font-bold uppercase text-[#3A60AA] dark:text-[#B9C9E0] bg-[#EEF3F9] dark:bg-[#142578] px-2.5 py-0.5 rounded-full border border-[#B9C9E0] dark:border-[#1F3590]">
                             {getSportLabel(game.sport, language)}
@@ -384,43 +385,57 @@ export const MyGamesTab: React.FC<{ defaultSubTab?: 'upcoming' | 'past' | 'booki
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-[#06135B] dark:text-white text-base group-hover:text-[#3A60AA] transition-colors truncate">
+                        <h4 className="font-bold text-[#06135B] dark:text-white text-base group-hover:text-[#3A60AA] transition-colors line-clamp-2 break-words">
                           {game.title}
                         </h4>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-[#B9C9E0]/80 mt-1">
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 shrink-0">
                             <Calendar className="w-3 h-3 text-slate-400" />
-                            {game.date}
+                            <span>{game.date}</span>
                           </span>
                           <span>•</span>
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 shrink-0">
                             <Clock className="w-3 h-3 text-slate-400" />
-                            {formatTimeRange12Hour(game.startTime, game.endTime, language)}
+                            <span>{formatTimeRange12Hour(game.startTime, game.endTime, language)}</span>
                           </span>
                           <span>•</span>
                           <span className="truncate">{game.courtName}</span>
                         </div>
                       </div>
-                      <span className="text-xs font-bold text-[#3A60AA] dark:text-[#B9C9E0] bg-[#EEF3F9] dark:bg-[#142578] border border-[#B9C9E0] dark:border-[#1F3590] px-2.5 py-1 rounded-full shrink-0">
-                        {(game.pricePerPlayerKWD ?? 0).toFixed(3)} KWD
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0 self-start">
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await shareGame(game, language);
+                          }}
+                          aria-label={t('Share game', 'مشاركة المباراة')}
+                          title={t('Share game', 'مشاركة المباراة')}
+                          className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl flex items-center justify-center text-slate-400 hover:text-[#3A60AA] dark:hover:text-[#B9C9E0] hover:bg-slate-100 dark:hover:bg-[#142578] transition-colors cursor-pointer shrink-0 active:scale-95"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        <span className="text-xs font-bold text-[#3A60AA] dark:text-[#B9C9E0] bg-[#EEF3F9] dark:bg-[#142578] border border-[#B9C9E0] dark:border-[#1F3590] px-2.5 py-1 rounded-full shrink-0">
+                          {(game.pricePerPlayerKWD ?? 0).toFixed(3)} KWD
+                        </span>
+                      </div>
                     </div>
 
                     {/* Attendance Confirmation Poll */}
                     <div 
                       onClick={(e) => e.stopPropagation()}
-                      className="pt-3 border-t border-slate-100 dark:border-[#1F3590]/60 flex items-center justify-between"
+                      className="pt-3 border-t border-slate-100 dark:border-[#1F3590]/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                     >
                       <span className="text-xs text-[#06135B] dark:text-[#B9C9E0] font-medium">
                         {t('Did you play this match?', 'هل حضرت ولعبت المباراة؟')}
                       </span>
                       {myParticipant?.attendanceConfirmed !== undefined ? (
-                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>{t('Attendance Confirmed ✓', 'تم تأكيد الحضور ✓')}</span>
                         </span>
                       ) : (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                           <button
                             onClick={() => confirmAttendance(game.id, true)}
                             className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold text-xs rounded-xl transition-colors cursor-pointer"

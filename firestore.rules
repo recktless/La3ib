@@ -91,13 +91,15 @@ service cloud.firestore {
         && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false || isAdmin())
         && (!('canOrganize' in request.resource.data) || request.resource.data.canOrganize == true || isAdmin());
       allow update: if (
-        // Profile owner or Admin
-        ((isOwner(userId) || isAdmin())
-          && (
-            isAdmin() || 
-            // Regular user cannot escalate to admin or alter administrative restrictions
-            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize', 'isBanned', 'banReason', 'banExpiresAt', 'bannedAt', 'bannedBy']))
-          )
+        // Profile owner: can update their own public profile, but cannot escalate privileges
+        (isOwner(userId)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize', 'isBanned', 'banReason', 'banExpiresAt', 'bannedAt', 'bannedBy']))
+        )
+        ||
+        // Admin moderation: can only edit public non-sensitive profile content and administrative status.
+        // Strictly prohibited from modifying personal/auth information (email, phone, age, privacy, uid, id, username)
+        (isAdmin()
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'phone', 'age', 'privacy', 'uid', 'id', 'username']))
         )
         ||
         // Target player follower, following, friend count, or 5-star rating aggregate update
@@ -195,7 +197,7 @@ service cloud.firestore {
 
       // Private Account Subcollection (sensitive data like email)
       match /private/{docId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, write: if isOwner(userId);
       }
 
       // Real-time Notifications Subcollection (/users/{userId}/notifications/{notificationId})
@@ -828,10 +830,14 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAdmin()
         && request.resource.data.moderatorId == request.auth.uid
-        && request.resource.data.action in ['review_report', 'resolve_report', 'dismiss_report', 'cancel_game', 'disable_game']
+        && request.resource.data.action in [
+          'review_report', 'resolve_report', 'dismiss_report', 'cancel_game', 'disable_game',
+          'ban_user', 'unban_user', 'delete_user', 'edit_game', 'moderate_profile', 'restrict_organizer', 'restore_organizer'
+        ]
         && request.resource.data.targetType in ['user', 'game', 'report']
         && isValidId(request.resource.data.targetId)
-        && request.resource.data.createdAt is string;
+        && request.resource.data.createdAt is string
+        && (!('modifiedFields' in request.resource.data) || request.resource.data.modifiedFields is list);
       allow update, delete: if false;
     }
 

@@ -32,7 +32,9 @@ import {
   isCostSharingMethodSelected,
   formatKuwaitMobile,
   ThemePreference,
-  EffectiveTheme
+  EffectiveTheme,
+  AdminGameEditInput,
+  AdminProfileModerationInput
 } from '../types';
 import { 
   CURRENT_USER, 
@@ -127,7 +129,9 @@ import {
   fetchRatingsForGameAndRater,
   banPlayerInFirestore,
   unbanPlayerInFirestore,
-  deletePlayerInFirestore
+  deletePlayerInFirestore,
+  adminEditGameInFirestore,
+  adminModeratePlayerProfileInFirestore
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
@@ -332,7 +336,11 @@ interface AppContextType {
   banPlayer: (userId: string, options: { reason?: string; isPermanent: boolean; expiresAt?: string | null }) => Promise<void>;
   unbanPlayer: (userId: string, reason?: string) => Promise<void>;
   deletePlayer: (userId: string, confirmation: string, reason?: string) => Promise<void>;
+  adminEditGame: (gameId: string, updates: AdminGameEditInput, reason?: string) => Promise<Game>;
+  adminModeratePlayerProfile: (targetUserId: string, updates: AdminProfileModerationInput, reason?: string) => Promise<void>;
   isAccountBanned: boolean;
+  pendingInviteGameId: string | null;
+  setPendingInviteGameId: (id: string | null) => void;
 
   // Payment Link Requests (Cost Sharing)
   paymentLinkRequests: Record<string, PaymentLinkRequest[]>;
@@ -1519,6 +1527,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
   const [safetyModalOpen, setSafetyModalOpen] = useState(false);
   const [adminModalOpen, setAdminModalOpen] = useState(false);
+
+  // Pending game invitation state (for direct URLs /game/:gameId or ?game=:gameId)
+  const [pendingInviteGameId, setPendingInviteGameId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      // 1. Check path e.g. /game/game-1 or /game/:id
+      const pathMatch = window.location.pathname.match(/\/game\/([a-zA-Z0-9_-]+)/);
+      if (pathMatch && pathMatch[1]) return pathMatch[1];
+      // 2. Check search params ?game=xyz or ?invite=xyz
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryGame = searchParams.get('game') || searchParams.get('invite');
+      if (queryGame) return queryGame;
+      // 3. Check sessionStorage
+      const saved = sessionStorage.getItem('la3ib_pending_invite_game');
+      if (saved) return saved;
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
+  // Keep sessionStorage in sync
+  useEffect(() => {
+    try {
+      if (pendingInviteGameId) {
+        sessionStorage.setItem('la3ib_pending_invite_game', pendingInviteGameId);
+      } else {
+        sessionStorage.removeItem('la3ib_pending_invite_game');
+      }
+    } catch {}
+  }, [pendingInviteGameId]);
+
+  // When games are loaded or change, if pendingInviteGameId is present, auto-open the game details
+  useEffect(() => {
+    if (!pendingInviteGameId) return;
+    const targetGame = games.find(g => g.id === pendingInviteGameId) || myGames.find(g => g.id === pendingInviteGameId);
+    if (targetGame) {
+      setSelectedGameForDetail(targetGame);
+    } else if (isFirebaseConfigured) {
+      getGameFromFirestore(pendingInviteGameId).then(g => {
+        if (g) setSelectedGameForDetail(g);
+      }).catch(err => console.warn('[AppContext] Could not fetch invited game:', err));
+    }
+  }, [pendingInviteGameId, games, myGames]);
 
   // Sync to local storage
   useEffect(() => {
@@ -3701,6 +3753,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const adminEditGame = async (gameId: string, input: AdminGameEditInput, reason?: string): Promise<Game> => {
+    const adminUid = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    if (!currentUser.isAdmin) {
+      throw new Error(language === 'ar' ? 'غير مصرح: صلاحيات المسؤول مطلوبة' : 'Unauthorized: Admin privileges required');
+    }
+
+    if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
+      return await adminEditGameInFirestore(gameId, input, adminUid, reason);
+    } else {
+      // Local / Demo state update
+      let updatedGame: Game | undefined;
+      setDemoGames(prev => prev.map(g => {
+        if (g.id !== gameId) return g;
+        updatedGame = {
+          ...g,
+          title: input.title !== undefined ? input.title : g.title,
+          description: input.description !== undefined ? input.description : g.description,
+          sport: input.sport !== undefined ? input.sport : g.sport,
+          skillLevel: input.skillLevel !== undefined ? input.skillLevel : g.skillLevel,
+          date: input.date !== undefined ? input.date : g.date,
+          startTime: input.startTime !== undefined ? input.startTime : g.startTime,
+          endTime: input.endTime !== undefined ? input.endTime : g.endTime,
+          courtName: input.courtName !== undefined ? input.courtName : g.courtName,
+          area: input.area !== undefined ? (input.area as any) : g.area,
+          maxPlayers: input.maxPlayers !== undefined ? input.maxPlayers : g.maxPlayers,
+          status: input.status !== undefined ? input.status : g.status,
+          visibility: input.visibility !== undefined ? input.visibility : g.visibility,
+          pricePerPlayerKWD: input.pricePerPlayerKWD !== undefined ? input.pricePerPlayerKWD : g.pricePerPlayerKWD,
+          costSharing: input.costSharing !== undefined ? input.costSharing : g.costSharing,
+        };
+        return updatedGame;
+      }));
+      if (!updatedGame) {
+        throw new Error(`Game ${gameId} not found`);
+      }
+      return updatedGame;
+    }
+  };
+
+  const adminModeratePlayerProfile = async (targetUserId: string, input: AdminProfileModerationInput, reason?: string): Promise<void> => {
+    const adminUid = (firebaseUser && !isDemoActive) ? firebaseUser.uid : (currentUser.uid || currentUser.id);
+    if (!currentUser.isAdmin) {
+      throw new Error(language === 'ar' ? 'غير مصرح: صلاحيات المسؤول مطلوبة' : 'Unauthorized: Admin privileges required');
+    }
+
+    if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
+      await adminModeratePlayerProfileInFirestore(targetUserId, input, adminUid, reason);
+    }
+
+    const updateProfileFn = (prev: UserProfile[]) => prev.map(p => {
+      const pUid = p.uid || p.id;
+      if (pUid === targetUserId) {
+        return {
+          ...p,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.nameAr !== undefined ? { nameAr: input.nameAr } : {}),
+          ...(input.bio !== undefined ? { bio: input.bio } : {}),
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+          ...(input.favoriteSports !== undefined ? { favoriteSports: input.favoriteSports } : {}),
+          ...(input.skills !== undefined ? { skills: input.skills } : {})
+        };
+      }
+      return p;
+    });
+
+    setFirestorePlayers(updateProfileFn);
+    setDemoPlayers(updateProfileFn);
+
+    setSelectedPlayerProfile(prev => {
+      if (prev && (prev.uid === targetUserId || prev.id === targetUserId)) {
+        return {
+          ...prev,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.nameAr !== undefined ? { nameAr: input.nameAr } : {}),
+          ...(input.bio !== undefined ? { bio: input.bio } : {}),
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+          ...(input.favoriteSports !== undefined ? { favoriteSports: input.favoriteSports } : {}),
+          ...(input.skills !== undefined ? { skills: input.skills } : {})
+        };
+      }
+      return prev;
+    });
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -3869,7 +4005,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeTutorial,
         isNewlyRegistered,
         setIsNewlyRegistered,
-        isTutorialPreview
+        isTutorialPreview,
+        adminEditGame,
+        adminModeratePlayerProfile,
+        pendingInviteGameId,
+        setPendingInviteGameId
       }}
     >
       {children}

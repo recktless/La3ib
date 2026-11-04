@@ -46,6 +46,7 @@ import {
   formatTimeRange12Hour
 } from '../types';
 import { resolveGameLocation, formatLatLngDisplay } from '../lib/location';
+import { shareGame } from '../lib/sharing';
 
 const GAME_REPORT_REASONS: { key: ReportReason; en: string; ar: string }[] = [
   { key: 'inappropriate_behavior', en: 'Inappropriate or offensive behavior', ar: 'سلوك مسيء أو غير لائق' },
@@ -130,6 +131,17 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
   const [handlingRequesterId, setHandlingRequesterId] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+
+  const handleShareClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!game) return;
+    const res = await shareGame(game, language);
+    if (res.copiedToClipboard) {
+      setShareNotice(language === 'ar' ? 'تم نسخ رابط الدعوة إلى الحافظة! 📋' : 'Invite link copied to clipboard! 📋');
+      setTimeout(() => setShareNotice(null), 3000);
+    }
+  };
 
   // WAMD Phone Number State for Joined Participants & Host
   const [wamdPhoneNumber, setWamdPhoneNumber] = useState<string | null>(null);
@@ -520,22 +532,34 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#BFDBFE] dark:border-[#22304E] bg-[#EEF4FF] dark:bg-[#0B1120]">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-[#BFDBFE] dark:border-[#22304E] bg-[#EEF4FF] dark:bg-[#0B1120] gap-2 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             <span className="text-xs font-black text-[#1246DF] dark:text-[#05BCD1] uppercase tracking-wider bg-white dark:bg-[#1B253D] border border-[#BFDBFE] dark:border-[#2A3B5C] px-2.5 py-0.5 rounded-full shrink-0">
               {getSportLabel(game.sport, language)}
             </span>
-            <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate max-w-[170px] sm:max-w-xs md:max-w-md">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm sm:text-base md:text-lg font-bold text-slate-900 dark:text-white line-clamp-1 sm:line-clamp-2 break-words leading-tight">
                 {game.title}
               </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+              <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 truncate mt-0.5">
                 {game.courtName} • <span className="text-[#1246DF] dark:text-[#05BCD1] font-semibold">{getKuwaitAreaLabel(game.area, language)}</span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {/* Native Share Icon Button with minimum 44px touch target */}
+            <button
+              type="button"
+              onClick={handleShareClick}
+              aria-label={t('Share game', 'مشاركة المباراة')}
+              title={t('Share game', 'مشاركة المباراة')}
+              className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#1246DF] dark:hover:text-[#05BCD1] hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
+            {/* Report Button */}
             <button
               onClick={() => {
                 setReportDetails('');
@@ -543,45 +567,60 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
                 setReportFeedback(null);
                 setShowReportForm(true);
               }}
-              className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-[#1B253D] text-slate-400 hover:text-rose-500 transition-colors"
+              className="min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
               title={t('Report Game', 'الإبلاغ عن المباراة')}
+              aria-label={t('Report Game', 'الإبلاغ عن المباراة')}
             >
               <ShieldAlert className="w-4 h-4" />
             </button>
+
+            {/* Close Button */}
             <button 
               onClick={() => setSelectedGameForDetail(null)}
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center justify-center cursor-pointer shrink-0"
+              aria-label={t('Close', 'إغلاق')}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Tab switcher: Details & Roster vs Game Chat vs Organizer Panel */}
-        <div className="flex border-b border-slate-200 dark:border-[#22304E] bg-slate-100/60 dark:bg-[#0B1120] px-3 sm:px-6 overflow-x-auto scrollbar-none">
+        {/* Share Feedback Toast Overlay */}
+        {shareNotice && (
+          <div className="bg-slate-900 text-white text-xs py-2 px-4 text-center font-bold animate-fade-in flex items-center justify-center gap-2">
+            <span>{shareNotice}</span>
+          </div>
+        )}
+
+        {/* Responsive, horizontally scrollable tab bar with natural-width tabs */}
+        <div className="w-full border-b border-slate-200 dark:border-[#22304E] bg-slate-100/60 dark:bg-[#0B1120] px-2 sm:px-6 overflow-x-auto scrollbar-none flex-nowrap scroll-smooth touch-pan-x flex items-center">
           <button
             onClick={() => setActiveTab('details')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors ${
+            className={`shrink-0 whitespace-nowrap min-w-max py-3 px-3.5 sm:px-5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'details'
                 ? 'border-[#1246DF] dark:border-[#05BCD1] text-[#1246DF] dark:text-[#05BCD1]'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            {t('Details & Roster', 'التفاصيل وقائمة اللاعبين')} ({game.participants.length}/{game.maxPlayers})
+            <Users className="w-3.5 h-3.5 shrink-0" />
+            <span>{t('Details & Roster', 'التفاصيل وقائمة اللاعبين')}</span>
+            <span className="text-[10px] bg-slate-200/80 dark:bg-[#1B253D] text-slate-700 dark:text-slate-300 px-1.5 py-0.2 rounded-full font-bold">
+              {game.participants.length}/{game.maxPlayers}
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('chat')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`shrink-0 whitespace-nowrap min-w-max py-3 px-3.5 sm:px-5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'chat'
                 ? 'border-[#1246DF] dark:border-[#05BCD1] text-[#1246DF] dark:text-[#05BCD1]'
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
             <span>{t('Game Chat', 'شات المباراة')}</span>
             {gameChat.length > 0 && (
-              <span className="text-[10px] bg-slate-200 dark:bg-[#1B253D] text-slate-700 dark:text-slate-300 px-1.5 py-0.2 rounded-full font-bold">
+              <span className="text-[10px] bg-slate-200/80 dark:bg-[#1B253D] text-slate-700 dark:text-slate-300 px-1.5 py-0.2 rounded-full font-bold">
                 {gameChat.length}
               </span>
             )}
@@ -590,13 +629,13 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
           {isOrganizer && (
             <button
               onClick={() => setActiveTab('organizer')}
-              className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+              className={`shrink-0 whitespace-nowrap min-w-max py-3 px-3.5 sm:px-5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'organizer'
                   ? 'border-amber-500 text-amber-600 dark:text-amber-400'
                   : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-300'
               }`}
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-3.5 h-3.5 shrink-0" />
               <span>{t('Organizer Dashboard', 'لوحة المنظم المالية')}</span>
               {paymentLinkRequests.filter(r => r.status === 'pending').length > 0 && (
                 <span className="ms-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white font-bold text-[10px]">

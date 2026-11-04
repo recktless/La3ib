@@ -7,7 +7,12 @@ import {
   ModerationAction, 
   ModerationTargetType, 
   SportType, 
-  KuwaitArea 
+  KuwaitArea,
+  AdminGameEditInput,
+  AdminProfileModerationInput,
+  Game,
+  UserProfile,
+  DEFAULT_GUEST_AVATAR
 } from '../types';
 import { 
   ShieldCheck, 
@@ -43,7 +48,8 @@ import {
   MapPin,
   Flame,
   Award,
-  Sparkles
+  Sparkles,
+  Edit3
 } from 'lucide-react';
 import { 
   isFirebaseConfigured, 
@@ -88,7 +94,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
     setActiveTab,
     banPlayer,
     unbanPlayer,
-    deletePlayer
+    deletePlayer,
+    adminEditGame,
+    adminModeratePlayerProfile
   } = useApp();
 
   const [activeAdminSection, setActiveAdminSection] = useState<'overview' | 'reports' | 'games' | 'users' | 'audit'>(initialSection);
@@ -147,6 +155,21 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
     accountHandle: string;
     confirmationText: string;
     reason: string;
+  } | null>(null);
+
+  // Admin Game Edit Dialog
+  const [adminGameEditDialog, setAdminGameEditDialog] = useState<{
+    game: Game;
+    formData: AdminGameEditInput;
+    error?: string;
+  } | null>(null);
+
+  // Admin Profile Moderation Dialog
+  const [adminProfileModerationDialog, setAdminProfileModerationDialog] = useState<{
+    user: UserProfile;
+    formData: AdminProfileModerationInput;
+    removeAvatar: boolean;
+    error?: string;
   } | null>(null);
 
   // Phase 4: Game Filter States
@@ -634,6 +657,77 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
       setActionError(err?.message || t('Failed to delete player account.', 'فشل حذف حساب اللاعب.'));
     } finally {
       setActionLoadingMap(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  // Handle Admin Game Editing
+  const handleSaveAdminGameEdit = async () => {
+    if (!adminGameEditDialog) return;
+    const { game, formData } = adminGameEditDialog;
+    const currentParticipantCount = game.participants ? game.participants.length : 0;
+
+    if (formData.maxPlayers !== undefined && formData.maxPlayers < currentParticipantCount) {
+      setAdminGameEditDialog(prev => prev ? {
+        ...prev,
+        error: language === 'ar'
+          ? `لا يمكن تقليل سعة المباراة عن عدد اللاعبين الحاليين (${currentParticipantCount} لاعب)`
+          : `Capacity cannot be set lower than the current participant count (${currentParticipantCount} players)`
+      } : null);
+      return;
+    }
+
+    if (formData.maxPlayers !== undefined && (formData.maxPlayers < 2 || formData.maxPlayers > 50)) {
+      setAdminGameEditDialog(prev => prev ? {
+        ...prev,
+        error: language === 'ar' ? 'يجب أن تكون السعة بين 2 و 50 لاعباً' : 'Capacity must be between 2 and 50 players'
+      } : null);
+      return;
+    }
+
+    setActionLoadingMap(prev => ({ ...prev, [game.id]: true }));
+    setActionError(null);
+    try {
+      await adminEditGame(game.id, formData);
+      setAdminGameEditDialog(null);
+      setActionFeedback(t('Match settings updated successfully.', 'تم تحديث بيانات المباراة بنجاح.'));
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to update game:', err);
+      setAdminGameEditDialog(prev => prev ? {
+        ...prev,
+        error: err?.message || t('Failed to update game.', 'فشل تحديث المباراة.')
+      } : null);
+    } finally {
+      setActionLoadingMap(prev => ({ ...prev, [game.id]: false }));
+    }
+  };
+
+  // Handle Admin Player Profile Moderation
+  const handleSaveAdminProfileModeration = async () => {
+    if (!adminProfileModerationDialog) return;
+    const { user, formData, removeAvatar } = adminProfileModerationDialog;
+    const targetUserId = user.uid || user.id;
+
+    const payload: AdminProfileModerationInput = {
+      ...formData,
+      avatar: removeAvatar ? DEFAULT_GUEST_AVATAR : (formData.avatar || user.avatar)
+    };
+
+    setActionLoadingMap(prev => ({ ...prev, [targetUserId]: true }));
+    setActionError(null);
+    try {
+      await adminModeratePlayerProfile(targetUserId, payload);
+      setAdminProfileModerationDialog(null);
+      setActionFeedback(t('Player public profile moderated successfully.', 'تم تعديل الملف الشخصي العام للاعب بنجاح.'));
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to moderate player profile:', err);
+      setAdminProfileModerationDialog(prev => prev ? {
+        ...prev,
+        error: err?.message || t('Failed to moderate profile.', 'فشل تعديل الملف الشخصي.')
+      } : null);
+    } finally {
+      setActionLoadingMap(prev => ({ ...prev, [targetUserId]: false }));
     }
   };
 
@@ -1383,7 +1477,35 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setAdminGameEditDialog({
+                                game: g,
+                                formData: {
+                                  title: g.title,
+                                  description: g.description || '',
+                                  sport: g.sport,
+                                  skillLevel: g.skillLevel,
+                                  date: g.date,
+                                  startTime: g.startTime,
+                                  endTime: g.endTime,
+                                  courtName: g.courtName,
+                                  area: g.area,
+                                  maxPlayers: g.maxPlayers,
+                                  status: g.status,
+                                  visibility: g.visibility,
+                                  pricePerPlayerKWD: g.pricePerPlayerKWD,
+                                  totalCourtCostKWD: g.totalCourtCostKWD,
+                                  costSharing: g.costSharing ? { ...g.costSharing } : undefined
+                                }
+                              })}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-blue-500" />
+                              <span>{t('Edit Match', 'تعديل المباراة')}</span>
+                            </button>
+
                             <button
                               onClick={() => setExpandedRosterGameId(isRosterExpanded ? null : g.id)}
                               className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#131C31] hover:bg-slate-100 dark:hover:bg-[#22304E] border border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -1599,6 +1721,26 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                             <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold px-1">{t('Protected Admin', 'مسؤول محمي')}</span>
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                onClick={() => setAdminProfileModerationDialog({
+                                  user: u,
+                                  formData: {
+                                    name: u.name,
+                                    nameAr: u.nameAr || '',
+                                    bio: u.bio || '',
+                                    avatar: u.avatar || '',
+                                    favoriteSports: [...(u.favoriteSports || [])],
+                                    skills: { ...(u.skills || {}) }
+                                  },
+                                  removeAvatar: false
+                                })}
+                                className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>{t('Moderate Profile', 'إشراف الملف')}</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={() => setAthletePrivilegeDialog({
@@ -2586,6 +2728,486 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{actionLoadingMap[deletePlayerDialog.userId] ? t('Deleting...', 'جارٍ الحذف...') : t('Confirm Account Deletion', 'تأكيد الحذف النهائي')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADMIN GAME EDITING DIALOG                                                 */}
+      {/* ========================================================================= */}
+      {adminGameEditDialog && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 animate-fade-in overflow-y-auto">
+          <div 
+            className="w-full max-w-2xl bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-6 space-y-4 shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#22304E]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {t('Admin Match Management & Editing', 'تعديل بيانات المباراة إدارياً')}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    ID: {adminGameEditDialog.game.id} • {t('Current Participants:', 'المشاركون الحاليون:')} {adminGameEditDialog.game.participants.length}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setAdminGameEditDialog(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {adminGameEditDialog.error && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{adminGameEditDialog.error}</span>
+              </div>
+            )}
+
+            {/* Editing Form */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+              {/* Title */}
+              <div className="sm:col-span-2 space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Game Name / Title', 'اسم / عنوان المباراة')}
+                </label>
+                <input
+                  type="text"
+                  value={adminGameEditDialog.formData.title ?? ''}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, title: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="sm:col-span-2 space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Description', 'الوصف')}
+                </label>
+                <textarea
+                  rows={2}
+                  value={adminGameEditDialog.formData.description ?? ''}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, description: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Sport */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Sport', 'الرياضة')}
+                </label>
+                <select
+                  value={adminGameEditDialog.formData.sport ?? 'Football'}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, sport: e.target.value as SportType }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Football">Football / كرة قدم</option>
+                  <option value="Padel">Padel / بادل</option>
+                  <option value="Basketball">Basketball / كرة سلة</option>
+                  <option value="Volleyball">Volleyball / كرة طائرة</option>
+                  <option value="Tennis">Tennis / تنس</option>
+                  <option value="Cricket">Cricket / كريكت</option>
+                </select>
+              </div>
+
+              {/* Skill Level */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Skill Level', 'المستوى')}
+                </label>
+                <select
+                  value={adminGameEditDialog.formData.skillLevel ?? 'All Levels'}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, skillLevel: e.target.value as any }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Casual">Casual / ترفيهي</option>
+                  <option value="Intermediate">Intermediate / متوسط</option>
+                  <option value="Advanced">Advanced / متقدم</option>
+                  <option value="All Levels">All Levels / جميع المستويات</option>
+                </select>
+              </div>
+
+              {/* Date */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Date', 'التاريخ')}
+                </label>
+                <input
+                  type="date"
+                  value={adminGameEditDialog.formData.date ?? ''}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, date: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Time Range */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Time (Start - End)', 'الوقت (البداية - النهاية)')}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="time"
+                    value={adminGameEditDialog.formData.startTime ?? ''}
+                    onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                      ...prev,
+                      formData: { ...prev.formData, startTime: e.target.value }
+                    } : null)}
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <input
+                    type="time"
+                    value={adminGameEditDialog.formData.endTime ?? ''}
+                    onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                      ...prev,
+                      formData: { ...prev.formData, endTime: e.target.value }
+                    } : null)}
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Venue / Court Name */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Venue / Court Name', 'اسم الملعب / المكان')}
+                </label>
+                <input
+                  type="text"
+                  value={adminGameEditDialog.formData.courtName ?? ''}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, courtName: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Area */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Kuwait Area', 'المنطقة في الكويت')}
+                </label>
+                <select
+                  value={adminGameEditDialog.formData.area ?? 'Mishref'}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, area: e.target.value as KuwaitArea }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Mishref">Mishref / مشرف</option>
+                  <option value="Salmiya">Salmiya / السالمية</option>
+                  <option value="Hawally">Hawally / حولي</option>
+                  <option value="Jabriya">Jabriya / الجابرية</option>
+                  <option value="Kuwait City">Kuwait City / مدينة الكويت</option>
+                  <option value="Shuwaikh">Shuwaikh / الشويخ</option>
+                  <option value="Sabah Al-Salem">Sabah Al-Salem / صباح السالم</option>
+                  <option value="Bayan">Bayan / بيان</option>
+                  <option value="Rumaithiya">Rumaithiya / الرميثية</option>
+                  <option value="Fintas">Fintas / الفنطاس</option>
+                </select>
+              </div>
+
+              {/* Capacity */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>{t('Max Capacity', 'السعة القصوى')}</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {t('Min allowed:', 'الحد الأدنى المسموح:')} {adminGameEditDialog.game.participants.length}
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={adminGameEditDialog.game.participants.length}
+                  max={50}
+                  value={adminGameEditDialog.formData.maxPlayers ?? adminGameEditDialog.game.maxPlayers}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setAdminGameEditDialog(prev => prev ? {
+                      ...prev,
+                      formData: { ...prev.formData, maxPlayers: isNaN(val) ? undefined : val },
+                      error: undefined
+                    } : null);
+                  }}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Status */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Status', 'الحالة')}
+                </label>
+                <select
+                  value={adminGameEditDialog.formData.status ?? adminGameEditDialog.game.status}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, status: e.target.value as any }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Open">Open / متاحة</option>
+                  <option value="Full">Full / مكتملة</option>
+                  <option value="Cancelled">Cancelled / ملغية</option>
+                  <option value="Completed">Completed / مكتملة</option>
+                </select>
+              </div>
+
+              {/* Visibility */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Visibility', 'مستوى الرؤية')}
+                </label>
+                <select
+                  value={adminGameEditDialog.formData.visibility ?? adminGameEditDialog.game.visibility}
+                  onChange={(e) => setAdminGameEditDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, visibility: e.target.value as any }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="Public">Public / عام للجميع</option>
+                  <option value="Friends Only">Friends Only / للأصدقاء فقط</option>
+                  <option value="Private">Private / خاص بالدعوة</option>
+                </select>
+              </div>
+
+              {/* Price Per Player KWD */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Price per Player (KWD)', 'رسوم اللاعب (د.ك)')}
+                </label>
+                <input
+                  type="number"
+                  step="0.250"
+                  min={0}
+                  max={50}
+                  value={adminGameEditDialog.formData.pricePerPlayerKWD ?? 0}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setAdminGameEditDialog(prev => prev ? {
+                      ...prev,
+                      formData: { ...prev.formData, pricePerPlayerKWD: isNaN(val) ? 0 : val }
+                    } : null);
+                  }}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#22304E]">
+              <button
+                type="button"
+                onClick={() => setAdminGameEditDialog(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                {t('Cancel', 'إلغاء')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAdminGameEdit}
+                disabled={Boolean(actionLoadingMap[adminGameEditDialog.game.id])}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+              >
+                <Check className="w-4 h-4" />
+                <span>{actionLoadingMap[adminGameEditDialog.game.id] ? t('Saving...', 'جارٍ الحفظ...') : t('Save Changes', 'حفظ التغييرات')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADMIN PLAYER PROFILE MODERATION DIALOG                                    */}
+      {/* ========================================================================= */}
+      {adminProfileModerationDialog && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 animate-fade-in overflow-y-auto">
+          <div 
+            className="w-full max-w-lg bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-2xl p-6 space-y-4 shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#22304E]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {t('Moderate Public Player Profile', 'إشراف الملف الشخصي العام للاعب')}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    @{adminProfileModerationDialog.user.username} • UID: {adminProfileModerationDialog.user.id || adminProfileModerationDialog.user.uid}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setAdminProfileModerationDialog(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Privacy Protection Notice */}
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-xl text-xs space-y-1 text-blue-900 dark:text-blue-200">
+              <p className="font-bold flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>{t('Strict Privacy Boundary Enforced', 'حماية الخصوصية الصارمة مفعلة')}</span>
+              </p>
+              <p className="text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
+                {t(
+                  'Admins can only moderate public content (display name, bio, public avatar, sports). Strictly prohibited from viewing or editing private data: emails, phone numbers, passwords, payment info, and birth dates.',
+                  'يحق للمشرف تعديل المحتوى العام فقط (الاسم، النبذة، الصورة العامة، الرياضات). يمنع منعاً باتاً الاطلاع على أو تعديل البريد، الهاتف، كلمات المرور، والبيانات البنكية.'
+                )}
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {adminProfileModerationDialog.error && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{adminProfileModerationDialog.error}</span>
+              </div>
+            )}
+
+            {/* Profile Fields */}
+            <div className="space-y-3.5 text-xs">
+              {/* Display Name */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Public Display Name (EN)', 'الاسم المعروض (بالإنجليزية)')}
+                </label>
+                <input
+                  type="text"
+                  value={adminProfileModerationDialog.formData.name ?? ''}
+                  onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, name: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {/* Display Name (AR) */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Public Display Name (Arabic)', 'الاسم المعروض (بالعربية)')}
+                </label>
+                <input
+                  type="text"
+                  value={adminProfileModerationDialog.formData.nameAr ?? ''}
+                  onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, nameAr: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {/* Bio */}
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Public Bio', 'النبذة الشخصية')}
+                </label>
+                <textarea
+                  rows={2}
+                  value={adminProfileModerationDialog.formData.bio ?? ''}
+                  onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                    ...prev,
+                    formData: { ...prev.formData, bio: e.target.value }
+                  } : null)}
+                  className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {/* Avatar moderation */}
+              <div className="space-y-2 p-3 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E]">
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                  {t('Public Profile Picture Moderation', 'إشراف الصورة الشخصية')}
+                </label>
+                <div className="flex items-center gap-3">
+                  <img
+                    src={adminProfileModerationDialog.removeAvatar ? DEFAULT_GUEST_AVATAR : (adminProfileModerationDialog.formData.avatar || adminProfileModerationDialog.user.avatar)}
+                    alt="Preview"
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-300 dark:ring-slate-700 shrink-0"
+                  />
+                  <div className="flex-1 space-y-1.5">
+                    <input
+                      type="url"
+                      disabled={adminProfileModerationDialog.removeAvatar}
+                      placeholder="https://example.com/photo.jpg"
+                      value={adminProfileModerationDialog.formData.avatar ?? ''}
+                      onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                        ...prev,
+                        formData: { ...prev.formData, avatar: e.target.value }
+                      } : null)}
+                      className="w-full bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={adminProfileModerationDialog.removeAvatar}
+                        onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                          ...prev,
+                          removeAvatar: e.target.checked
+                        } : null)}
+                        className="rounded border-slate-300 dark:border-slate-700 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{t('Reset / Remove to Neutral Default Avatar', 'حذف الصورة وإعادة تعيين الصورة الافتراضية')}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#22304E]">
+              <button
+                type="button"
+                onClick={() => setAdminProfileModerationDialog(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                {t('Cancel', 'إلغاء')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAdminProfileModeration}
+                disabled={Boolean(actionLoadingMap[adminProfileModerationDialog.user.uid || adminProfileModerationDialog.user.id])}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+              >
+                <Check className="w-4 h-4" />
+                <span>{actionLoadingMap[adminProfileModerationDialog.user.uid || adminProfileModerationDialog.user.id] ? t('Saving...', 'جارٍ الحفظ...') : t('Save Moderation', 'تأكيد التعديل')}</span>
               </button>
             </div>
           </div>

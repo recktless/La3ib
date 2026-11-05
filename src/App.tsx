@@ -31,7 +31,7 @@ import { NotificationsModal } from './components/NotificationsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { LogIn, Ban, AlertCircle, X } from 'lucide-react';
-import { COMING_SOON_MODE, ADMIN_BYPASS_STORAGE_KEY } from './config/launchMode';
+import { COMING_SOON_MODE, ADMIN_BYPASS_STORAGE_KEY, setStoredAdminToken, clearStoredAdminToken } from './config/launchMode';
 import { ComingSoonPage } from './components/coming-soon/ComingSoonPage';
 import { AdminBypassBanner } from './components/coming-soon/AdminBypassBanner';
 
@@ -337,9 +337,18 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })
     })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.valid) {
+      .then(async (res) => {
+        if (!res.ok) return { valid: false };
+        const text = await res.text();
+        if (!text || !text.trim()) return { valid: false };
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { valid: false };
+        }
+      })
+      .then((data: any) => {
+        if (!data || !data.valid) {
           try {
             sessionStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
             localStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
@@ -358,11 +367,9 @@ export default function App() {
 
   const handleBypassSuccess = (token: string, email?: string) => {
     try {
-      sessionStorage.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
-      localStorage.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
+      setStoredAdminToken(token, email || 'khalidalami5555@gmail.com');
+      sessionStorage.setItem('la3ib_open_admin_modal', 'true');
       if (email) {
-        sessionStorage.setItem('la3ib_admin_bypass_email', email);
-        localStorage.setItem('la3ib_admin_bypass_email', email);
         setAdminEmail(email);
       }
     } catch {}
@@ -371,10 +378,8 @@ export default function App() {
 
   const handleReturnToComingSoon = () => {
     try {
-      sessionStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
-      localStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
-      sessionStorage.removeItem('la3ib_admin_bypass_email');
-      localStorage.removeItem('la3ib_admin_bypass_email');
+      clearStoredAdminToken();
+      sessionStorage.removeItem('la3ib_open_admin_modal');
     } catch {}
     setAdminBypassed(false);
   };

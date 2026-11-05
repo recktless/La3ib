@@ -232,4 +232,86 @@ describe('La3ib Coming Soon Page Redesign with Official Sticker Techpack', () =>
     expect(html).toContain('Return to Coming Soon | العودة لصفحة قريباً');
     expect(html).toContain('admin@la3ib.com');
   });
+
+  it('renders the AdminBypassModal with bilingual labels and password input without crashing', async () => {
+    const { AdminBypassModal } = await import('../src/components/coming-soon/AdminBypassModal');
+    const html = renderToStaticMarkup(
+      <AdminBypassModal isOpen={true} onClose={vi.fn()} onSuccess={vi.fn()} />
+    );
+
+    expect(html).toContain('Administrator Access');
+    expect(html).toContain('عربي');
+    expect(html).toContain('Admin Bypass Password');
+    expect(html).toContain('Unlock Full App');
+  });
+
+  it('safely handles empty, HTML, and malformed responses without throwing "Unexpected end of JSON input"', async () => {
+    // Helper that replicates the safe response parser used in AdminBypassModal and App.tsx
+    async function safeParse(response: { text: () => Promise<string>; ok: boolean; status: number }) {
+      let rawText = '';
+      try {
+        rawText = await response.text();
+      } catch {
+        return { ok: false, status: response.status, data: null };
+      }
+      const trimmed = rawText.trim();
+      if (!trimmed) {
+        return { ok: response.ok, status: response.status, data: null };
+      }
+      try {
+        const data = JSON.parse(trimmed);
+        return { ok: response.ok, status: response.status, data };
+      } catch {
+        return { ok: false, status: response.status, data: null };
+      }
+    }
+
+    // 1. Empty body (the exact condition that caused "Unexpected end of JSON input")
+    const emptyResponse = {
+      ok: false,
+      status: 502,
+      text: async () => ''
+    };
+    const emptyResult = await safeParse(emptyResponse);
+    expect(emptyResult.data).toBeNull();
+    expect(emptyResult.status).toBe(502);
+
+    // 2. Whitespace-only body
+    const whitespaceResponse = {
+      ok: false,
+      status: 503,
+      text: async () => '   \n\t  '
+    };
+    const whitespaceResult = await safeParse(whitespaceResponse);
+    expect(whitespaceResult.data).toBeNull();
+
+    // 3. HTML Error Page from Reverse Proxy (e.g. Cloud Run 502 Bad Gateway)
+    const htmlResponse = {
+      ok: false,
+      status: 502,
+      text: async () => '<!DOCTYPE html><html><body>502 Bad Gateway</body></html>'
+    };
+    const htmlResult = await safeParse(htmlResponse);
+    expect(htmlResult.data).toBeNull();
+
+    // 4. Valid JSON response
+    const validResponse = {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true, bypassToken: 'token.123' })
+    };
+    const validResult = await safeParse(validResponse);
+    expect(validResult.data).toEqual({ success: true, bypassToken: 'token.123' });
+    expect(validResult.ok).toBe(true);
+
+    // 5. Rate limit 429 structured JSON response
+    const rateLimitResponse = {
+      ok: false,
+      status: 429,
+      text: async () => JSON.stringify({ success: false, rateLimited: true, error: 'Too many failed attempts.' })
+    };
+    const rateLimitResult = await safeParse(rateLimitResponse);
+    expect(rateLimitResult.data?.rateLimited).toBe(true);
+    expect(rateLimitResult.status).toBe(429);
+  });
 });

@@ -1,12 +1,42 @@
 import React, { useState } from 'react';
-import { Lock, Shield, X, Loader2, AlertCircle, CheckCircle2, KeyRound } from 'lucide-react';
-import { auth } from '../../lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { Shield, X, Loader2, AlertCircle, CheckCircle2, KeyRound } from 'lucide-react';
 
 interface AdminBypassModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (token: string) => void;
+  onSuccess: (token: string, email?: string) => void;
+}
+
+const AUTHORIZED_ADMIN_EMAIL = 'khalidalami5555@gmail.com';
+
+/**
+ * Safely parse HTTP response to prevent 'Unexpected end of JSON input' syntax errors.
+ * Inspects body text and status before attempting JSON deserialization.
+ */
+async function safeParseJsonResponse<T = any>(response: Response): Promise<{
+  ok: boolean;
+  status: number;
+  data: T | null;
+  rawText: string;
+}> {
+  let rawText = '';
+  try {
+    rawText = await response.text();
+  } catch {
+    return { ok: false, status: response.status, data: null, rawText: '' };
+  }
+
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return { ok: response.ok, status: response.status, data: null, rawText: '' };
+  }
+
+  try {
+    const data = JSON.parse(trimmed) as T;
+    return { ok: response.ok, status: response.status, data, rawText: trimmed };
+  } catch {
+    return { ok: false, status: response.status, data: null, rawText: trimmed };
+  }
 }
 
 export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
@@ -15,9 +45,6 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
   onSuccess
 }) => {
   const [password, setPassword] = useState('');
-  const [adminEmail, setAdminEmail] = useState('khalidalami5555@gmail.com');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [requiresAuth, setRequiresAuth] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<'en' | 'ar'>('en');
@@ -29,7 +56,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password.trim()) {
-      setError(t('Please enter the administrator bypass code.', 'يرجى إدخال رمز دخول الإدارة.'));
+      setError(t('Please enter the administrator access password.', 'يرجى إدخال رمز دخول الإدارة.'));
       return;
     }
 
@@ -37,61 +64,93 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
     setError(null);
 
     try {
-      let idToken: string | null = null;
-      const currentAuth = auth?.currentUser;
-
-      if (currentAuth) {
-        idToken = await currentAuth.getIdToken(true);
-      } else if (requiresAuth || adminPassword) {
-        // Authenticate with Firebase if credentials provided
-        if (!auth) {
-          throw new Error('Firebase Auth is not available.');
-        }
-        const userCred = await signInWithEmailAndPassword(auth, adminEmail.trim(), adminPassword);
-        idToken = await userCred.user.getIdToken(true);
+      // Safe fetch call to verify bypass password
+      let response: Response;
+      try {
+        response = await fetch('/api/admin/verify-coming-soon-bypass', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            password: password.trim()
+          })
+        });
+      } catch (netErr: any) {
+        throw new Error(
+          t(
+            'Network error: unable to reach the administrator verification server. Please verify your connection.',
+            'خطأ في الاتصال: تعذر الوصول إلى خادم التحقق من الإدارة. يرجى التحقق من اتصالك بالإنترنت.'
+          )
+        );
       }
 
-      // Call secure server verification endpoint
-      const response = await fetch('/api/admin/verify-coming-soon-bypass', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
-        },
-        body: JSON.stringify({
-          password: password.trim(),
-          idToken
-        })
-      });
+      // Safe JSON parsing without raw response.json() crashes
+      const parsed = await safeParseJsonResponse<any>(response);
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        if (data.requiresAuth) {
-          setRequiresAuth(true);
+      if (!parsed.data) {
+        if (response.status === 429) {
           setError(
-            language === 'ar'
-              ? data.errorAr || 'مطلوب تسجيل الدخول بحساب مسؤول معتمد.'
-              : data.error || 'Administrator credentials required to verify bypass authorization.'
+            t(
+              'Too many failed attempts. Please wait 15 minutes before trying again.',
+              'محاولات خاطئة متكررة. يرجى الانتظار لمدة 15 دقيقة قبل المحاولة مرة أخرى.'
+            )
           );
-        } else {
-          setError(
-            language === 'ar'
-              ? data.errorAr || 'رمز الدخول الخاص بالإدارة غير صحيح.'
-              : data.error || 'Incorrect administrator bypass code.'
-          );
+          return;
         }
+
+        if (response.status >= 500) {
+          setError(
+            t(
+              `The verification service returned an empty or invalid response (HTTP ${response.status}). The server may be restarting. Please retry in a moment.`,
+              `أعاد خادم التحقق استجابة غير صالحة (${response.status}). قد يكون الخادم قيد إعادة التشغيل، يرجى المحاولة بعد قليل.`
+            )
+          );
+          return;
+        }
+
+        setError(
+          t(
+            'Invalid response from administrator verification server. Please try again.',
+            'استجابة غير متوقعة من خادم التحقق. يرجى المحاولة مرة أخرى.'
+          )
+        );
         return;
       }
 
-      // Success
+      const data = parsed.data;
+
+      if (!response.ok || !data.success) {
+        if (data.rateLimited || response.status === 429) {
+          setError(
+            language === 'ar'
+              ? data.errorAr || 'محاولات خاطئة متكررة. يرجى الانتظار قبل المحاولة مرة أخرى.'
+              : data.error || 'Too many failed attempts. Please wait before trying again.'
+          );
+          return;
+        }
+
+        setError(
+          language === 'ar'
+            ? data.errorAr || 'رمز الدخول الخاص بالإدارة غير صحيح.'
+            : data.error || 'Incorrect administrator password.'
+        );
+        return;
+      }
+
+      // Success: Admin bypass session token returned
       if (data.bypassToken) {
-        onSuccess(data.bypassToken);
+        onSuccess(data.bypassToken, data.adminEmail || AUTHORIZED_ADMIN_EMAIL);
         onClose();
+      } else {
+        setError(t('Verification passed but bypass token was not returned.', 'تم التحقق بنجاح لكن لم يتم استلام رمز العبور.'));
       }
     } catch (err: any) {
       console.error('[AdminBypassModal] Verification error:', err);
-      setError(err?.message || t('Failed to verify administrator bypass. Please try again.', 'فشل التحقق من دخول الإدارة. يرجى المحاولة مرة أخرى.'));
+      setError(
+        err?.message ||
+          t('Failed to verify administrator access. Please try again.', 'فشل التحقق من دخول الإدارة. يرجى المحاولة مرة أخرى.')
+      );
     } finally {
       setLoading(false);
     }
@@ -106,7 +165,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
       aria-labelledby="bypass-modal-title"
     >
       <div
-        className="relative w-full max-w-sm sm:max-w-md bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl transition-all"
+        className="relative w-full max-w-sm bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl transition-all"
         onClick={(e) => e.stopPropagation()}
         dir={language === 'ar' ? 'rtl' : 'ltr'}
       >
@@ -121,7 +180,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
                 {t('Administrator Access', 'دخول الإدارة')}
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {t('Authorized staff pre-launch bypass', 'تخطي مرحلة الإطلاق للمسؤولين المعتمدين')}
+                {t('Enter admin password to open dashboard', 'أدخل كلمة مرور الإدارة لفتح لوحة التحكم')}
               </p>
             </div>
           </div>
@@ -157,7 +216,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
             </div>
           )}
 
-          {/* Bypass Password Input */}
+          {/* Password Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
               {t('Admin Bypass Password', 'رمز دخول الإدارة')}
@@ -177,46 +236,9 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
               <KeyRound className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 end-3 pointer-events-none" />
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500">
-              {t('Enter your 4-digit administrator pre-launch key.', 'أدخل الرمز الرباعي المعتمد للإدارة.')}
+              {t('Enter the 4-digit administrator password.', 'أدخل رمز الإدارة المكون من 4 أرقام.')}
             </p>
           </div>
-
-          {/* If Firebase Admin Authentication is required */}
-          {requiresAuth && (
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800 animate-fade-in">
-              <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-[#1E40AF]" />
-                <span>{t('Admin Identity Verification', 'التحقق من هوية المسؤول')}</span>
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-[11px] text-slate-500 dark:text-slate-400">
-                  {t('Admin Email', 'البريد الإلكتروني للإدارة')}
-                </label>
-                <input
-                  type="email"
-                  value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-[#1E40AF]"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-[11px] text-slate-500 dark:text-slate-400">
-                  {t('Firebase Password', 'كلمة مرور الحساب')}
-                </label>
-                <input
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-[#1E40AF]"
-                  required
-                />
-              </div>
-            </div>
-          )}
 
           <div className="pt-2 flex items-center justify-end gap-2">
             <button

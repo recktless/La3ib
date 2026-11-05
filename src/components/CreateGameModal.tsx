@@ -37,7 +37,8 @@ import {
   File,
   AlertCircle,
   Loader2,
-  Info
+  Info,
+  ChevronDown
 } from 'lucide-react';
 import { MapLocationPicker, MapLocationValue } from './MapLocationPicker';
 import { resolveGameLocation, getNearestKuwaitLocation } from '../lib/location';
@@ -78,7 +79,25 @@ export const CreateGameModal: React.FC = () => {
   const [endTime, setEndTime] = useState(() => createGamePrefill?.endTime || '21:30');
   const [courtName, setCourtName] = useState(() => createGamePrefill?.courtName || 'Mishref Youth Center Stadium');
   const [area, setArea] = useState<KuwaitArea>(() => (createGamePrefill?.area as KuwaitArea) || 'Mishref');
-  const [address, setAddress] = useState(() => createGamePrefill?.address || 'Block 6, Mishref Oasis Road');
+  const [address, setAddress] = useState(() => createGamePrefill?.address || '');
+
+  // Collapsible Accordion sections state (Only Booking and Cost Sharing start collapsed)
+  type SectionKey = 'basics' | 'datetime' | 'location' | 'players' | 'booking' | 'costSharing';
+  const [expandedSections, setExpandedSections] = useState<Record<SectionKey, boolean>>({
+    basics: true,
+    datetime: true,
+    location: true,
+    players: true,
+    booking: false,
+    costSharing: false,
+  });
+
+  const toggleSection = (key: SectionKey) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
   const [mapLocation, setMapLocation] = useState<MapLocationValue>(() => {
     const res = resolveGameLocation(createGamePrefill || { coordinates: { x: 55, y: 52 } });
     return {
@@ -192,7 +211,7 @@ export const CreateGameModal: React.FC = () => {
       setEndTime('21:30');
       setCourtName('Mishref Youth Center Stadium');
       setArea('Mishref');
-      setAddress('Block 6, Mishref Oasis Road');
+      setAddress('');
       const defaultResolved = resolveGameLocation({ coordinates: { x: 55, y: 52 }, courtName: 'Mishref Youth Center Stadium', area: 'Mishref' });
       setMapLocation({
         coordinates: defaultResolved.coordinates,
@@ -226,6 +245,16 @@ export const CreateGameModal: React.FC = () => {
       setLockedFields({});
       setAttachedBookingRemoved(false);
     }
+
+    // Always reset accordion states to defaults: Booking & Cost Sharing collapsed, others expanded
+    setExpandedSections({
+      basics: true,
+      datetime: true,
+      location: true,
+      players: true,
+      booking: false,
+      costSharing: false,
+    });
   }, [createGamePrefill, createGameModalOpen]);
 
   if (!createGameModalOpen) return null;
@@ -741,663 +770,392 @@ export const CreateGameModal: React.FC = () => {
           )}
 
           {/* Section 1: Game Basics */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center">
-                1
-              </span>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                {t('Game Basics', 'البيانات الأساسية')}
-              </h3>
-            </div>
-
-            {/* Game Title */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                {t('Game Name', 'اسم المباراة')} *
-              </label>
-              <input 
-                type="text"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t('e.g. Friday Football Match', 'مثال: مباراة كرة قدم الجمعة')}
-                className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
-              />
-            </div>
-
-            {/* Sport & Skill Level */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    {t('Sport', 'الرياضة')}
-                  </label>
-                  {lockedFields.sport && !isLinkedLi3ibBooking && (
-                    <button
-                      type="button"
-                      onClick={() => setLockedFields(prev => ({ ...prev, sport: !prev.sport }))}
-                      className="text-[11px] text-[#3A60AA] dark:text-[#B9C9E0] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <Unlock className="w-3 h-3" />
-                      <span>{t('Unlock', 'تعديل')}</span>
-                    </button>
-                  )}
-                </div>
-                <select
-                  value={sport}
-                  disabled={isLinkedLi3ibBooking || lockedFields.sport}
-                  onChange={(e) => setSport(e.target.value as SportType)}
-                  className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-colors ${
-                    isLinkedLi3ibBooking || lockedFields.sport
-                      ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                      : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] text-slate-900 dark:text-white'
-                  }`}
-                >
-                  <option value="Football">{t('Football', 'كرة القدم')}</option>
-                  <option value="Padel">{t('Padel', 'بادل')}</option>
-                  <option value="Basketball">{t('Basketball', 'كرة السلة')}</option>
-                  <option value="Volleyball">{t('Volleyball', 'كرة الطائرة')}</option>
-                  <option value="Tennis">{t('Tennis', 'تنس')}</option>
-                  <option value="Badminton">{t('Badminton', 'ريشة طائرة')}</option>
-                  <option value="Other">{t('Other', 'أخرى')}</option>
-                </select>
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('basics')}
+              aria-expanded={expandedSections.basics}
+              aria-controls="section-basics-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  1
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Game Basics', 'البيانات الأساسية')}
+                </h3>
               </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.basics ? 'rotate-180' : 'rotate-0'
+                  }`}
+                />
+              </div>
+            </button>
 
+            <div
+              id="section-basics-content"
+              role="region"
+              aria-label={t('Game Basics', 'البيانات الأساسية')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.basics 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              {/* Game Title */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                  {t('Skill Level', 'المستوى الرياضي')}
+                  {t('Game Name', 'اسم المباراة')} *
                 </label>
-                <select
-                  value={skillLevel}
-                  onChange={(e) => setSkillLevel(e.target.value as SkillLevel)}
-                  className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none transition-colors"
-                >
-                  <option value="Beginner">{t('Beginner', 'مبتدئ')}</option>
-                  <option value="Casual">{t('Casual', 'ودي / ترويحي')}</option>
-                  <option value="Intermediate">{t('Intermediate', 'متوسط')}</option>
-                  <option value="Advanced">{t('Advanced', 'متقدم')}</option>
-                  <option value="Competitive">{t('Competitive', 'تنافسي عالي')}</option>
-                  <option value="Any level">{t('Any level', 'جميع المستويات')}</option>
-                </select>
+                <input 
+                  id="game-form-title"
+                  type="text"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t('e.g. Friday Football Match', 'مثال: مباراة كرة قدم الجمعة')}
+                  className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Sport & Skill Level */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      {t('Sport', 'الرياضة')}
+                    </label>
+                    {lockedFields.sport && !isLinkedLi3ibBooking && (
+                      <button
+                        type="button"
+                        onClick={() => setLockedFields(prev => ({ ...prev, sport: !prev.sport }))}
+                        className="text-[11px] text-[#3A60AA] dark:text-[#B9C9E0] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Unlock className="w-3 h-3" />
+                        <span>{t('Unlock', 'تعديل')}</span>
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={sport}
+                    disabled={isLinkedLi3ibBooking || lockedFields.sport}
+                    onChange={(e) => setSport(e.target.value as SportType)}
+                    className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-colors ${
+                      isLinkedLi3ibBooking || lockedFields.sport
+                        ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                        : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] text-slate-900 dark:text-white'
+                    }`}
+                  >
+                    <option value="Football">{t('Football', 'كرة القدم')}</option>
+                    <option value="Padel">{t('Padel', 'بادل')}</option>
+                    <option value="Basketball">{t('Basketball', 'كرة السلة')}</option>
+                    <option value="Volleyball">{t('Volleyball', 'كرة الطائرة')}</option>
+                    <option value="Tennis">{t('Tennis', 'تنس')}</option>
+                    <option value="Badminton">{t('Badminton', 'ريشة طائرة')}</option>
+                    <option value="Other">{t('Other', 'أخرى')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    {t('Skill Level', 'المستوى الرياضي')}
+                  </label>
+                  <select
+                    value={skillLevel}
+                    onChange={(e) => setSkillLevel(e.target.value as SkillLevel)}
+                    className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none transition-colors"
+                  >
+                    <option value="Beginner">{t('Beginner', 'مبتدئ')}</option>
+                    <option value="Casual">{t('Casual', 'ودي / ترويحي')}</option>
+                    <option value="Intermediate">{t('Intermediate', 'متوسط')}</option>
+                    <option value="Advanced">{t('Advanced', 'متقدم')}</option>
+                    <option value="Competitive">{t('Competitive', 'تنافسي عالي')}</option>
+                    <option value="Any level">{t('Any level', 'جميع المستويات')}</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Game Bio / Description (Moved into Game Basics) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('Game Bio / Description', 'نبذة عن المباراة / رسالة المنظم')}
+                  <span className="sr-only">Description / Organizer Notes</span>
+                </label>
+                <textarea 
+                  rows={3}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('Add notes for players, pitch rules, or directions...', 'أضف ملاحظات للاعبين أو إرشادات الوصول للملعب...')}
+                  className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
+                />
               </div>
             </div>
           </div>
 
           {/* Section 2: Date & Time */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center">
-                2
-              </span>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                {t('Date & Time', 'التاريخ والتوقيت')}
-              </h3>
-            </div>
-
-            {/* Date Selector */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  {t('Date', 'التاريخ')} *
-                </label>
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('datetime')}
+              aria-expanded={expandedSections.datetime}
+              aria-controls="section-datetime-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  2
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Date & Time', 'التاريخ والتوقيت')}
+                </h3>
               </div>
-
-              <div 
-                onClick={() => {
-                  if (!isDateTimeLocked) {
-                    try { dateInputRef.current?.showPicker(); } catch { dateInputRef.current?.focus(); }
-                  }
-                }}
-                className={`min-h-[48px] flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border transition-colors ${
-                  isDateTimeLocked
-                    ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                    : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
-                }`}
-              >
-                <input 
-                  ref={dateInputRef}
-                  type="date"
-                  required
-                  value={date}
-                  disabled={isDateTimeLocked}
-                  onChange={(e) => {
-                    if (isDateTimeLocked) return;
-                    setDate(e.target.value);
-                  }}
-                  className={`flex-1 bg-transparent text-sm font-semibold text-slate-900 dark:text-white focus:outline-none min-h-[44px] appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-inner-spin-button]:hidden ${
-                    isDateTimeLocked ? 'cursor-not-allowed' : 'cursor-pointer'
+              <div className="flex items-center gap-2 shrink-0">
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.datetime ? 'rotate-180' : 'rotate-0'
                   }`}
                 />
-                <button
-                  type="button"
-                  disabled={isDateTimeLocked}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isDateTimeLocked) {
-                      try { dateInputRef.current?.showPicker(); } catch { dateInputRef.current?.focus(); }
-                    }
-                  }}
-                  className={`w-11 h-11 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
-                    isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
-                  }`}
-                  aria-label={t('Open date picker', 'فتح روزنامة التاريخ')}
-                >
-                  <Calendar className="w-5 h-5 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                </button>
               </div>
-            </div>
+            </button>
 
-            {/* Side-by-side Start & End Times */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Start Time */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    {t('Start Time', 'البداية')} *
-                  </label>
-                </div>
-
-                <div 
-                  onClick={() => {
-                    if (!isDateTimeLocked) {
-                      setActiveTimePicker('start');
-                    }
-                  }}
-                  className={`min-h-[48px] flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${
-                    isDateTimeLocked
-                      ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                      : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
-                  }`}
-                >
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                      {formatTime12Hour(startTime, language)}
-                    </span>
-                    <input 
-                      ref={startTimeInputRef}
-                      type="time"
-                      required
-                      value={startTime}
-                      readOnly
-                      disabled={isDateTimeLocked}
-                      tabIndex={-1}
-                      className="sr-only pointer-events-none [&::-webkit-calendar-picker-indicator]:hidden"
-                    />
-                    {!isDateTimeLocked && (
-                      <span className="text-[10px] text-[#3A60AA] dark:text-[#B9C9E0] font-medium">
-                        {t('Tap to change time', 'اضغط لتغيير الوقت')}
-                      </span>
-                    )}
+            <div
+              id="section-datetime-content"
+              role="region"
+              aria-label={t('Date & Time', 'التاريخ والتوقيت')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.datetime 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              {/* Compact Date & Time Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Date Selector */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      {t('Date', 'التاريخ')} *
+                    </label>
                   </div>
-                  <button
-                    type="button"
-                    disabled={isDateTimeLocked}
-                    onClick={(e) => {
-                      e.stopPropagation();
+
+                  <div 
+                    onClick={() => {
                       if (!isDateTimeLocked) {
-                        setActiveTimePicker('start');
+                        try { dateInputRef.current?.showPicker(); } catch { dateInputRef.current?.focus(); }
                       }
                     }}
-                    className={`w-11 h-11 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
-                      isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
+                    className={`h-11 flex items-center justify-between gap-2 px-3 rounded-xl border transition-colors ${
+                      isDateTimeLocked
+                        ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                        : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
                     }`}
-                    aria-label={t('Open start time picker', 'فتح وقت البداية')}
                   >
-                    <Clock className="w-5 h-5 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                  </button>
-                </div>
-              </div>
-
-              {/* End Time */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    {t('End Time', 'النهاية')} *
-                  </label>
-                </div>
-
-                <div 
-                  onClick={() => {
-                    if (!isDateTimeLocked) {
-                      setActiveTimePicker('end');
-                    }
-                  }}
-                  className={`min-h-[48px] flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-xl border transition-colors ${
-                    isDateTimeLocked
-                      ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                      : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
-                  }`}
-                >
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                      {formatTime12Hour(endTime, language)}
-                    </span>
                     <input 
-                      ref={endTimeInputRef}
-                      type="time"
+                      id="game-form-date"
+                      ref={dateInputRef}
+                      type="date"
                       required
-                      value={endTime}
-                      readOnly
+                      value={date}
                       disabled={isDateTimeLocked}
-                      tabIndex={-1}
-                      className="sr-only pointer-events-none"
+                      onChange={(e) => {
+                        if (isDateTimeLocked) return;
+                        setDate(e.target.value);
+                      }}
+                      className={`flex-1 bg-transparent text-sm font-semibold text-slate-900 dark:text-white focus:outline-none appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-inner-spin-button]:hidden ${
+                        isDateTimeLocked ? 'cursor-not-allowed' : 'cursor-pointer'
+                      }`}
                     />
-                    {!isDateTimeLocked && (
-                      <span className="text-[10px] text-[#3A60AA] dark:text-[#B9C9E0] font-medium">
-                        {t('Tap to change time', 'اضغط لتغيير الوقت')}
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      disabled={isDateTimeLocked}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isDateTimeLocked) {
+                          try { dateInputRef.current?.showPicker(); } catch { dateInputRef.current?.focus(); }
+                        }
+                      }}
+                      className={`w-11 h-11 -mr-2 rtl:-mr-0 rtl:-ml-2 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
+                        isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
+                      }`}
+                      aria-label={t('Open date picker', 'فتح روزنامة التاريخ')}
+                    >
+                      <Calendar className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    disabled={isDateTimeLocked}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!isDateTimeLocked) {
-                        setActiveTimePicker('end');
-                      }
-                    }}
-                    className={`w-11 h-11 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
-                      isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
-                    }`}
-                    aria-label={t('Open end time picker', 'فتح وقت النهاية')}
-                  >
-                    <Clock className="w-5 h-5 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                  </button>
+                </div>
+
+                {/* Side-by-side Start & End Times */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  {/* Start Time */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        {t('Start Time', 'البداية')} *
+                      </label>
+                    </div>
+
+                    <div 
+                      onClick={() => {
+                        if (!isDateTimeLocked) {
+                          setActiveTimePicker('start');
+                        }
+                      }}
+                      className={`h-11 flex items-center justify-between gap-1.5 px-3 rounded-xl border transition-colors ${
+                        isDateTimeLocked
+                          ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                          : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {formatTime12Hour(startTime, language)}
+                        </span>
+                        {!isDateTimeLocked && (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal truncate">
+                            {t('Tap to change time', 'انقر لتغيير الوقت')}
+                          </span>
+                        )}
+                        <input 
+                          ref={startTimeInputRef}
+                          type="time"
+                          required
+                          value={startTime}
+                          readOnly
+                          disabled={isDateTimeLocked}
+                          tabIndex={-1}
+                          className="sr-only pointer-events-none [&::-webkit-calendar-picker-indicator]:hidden"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isDateTimeLocked}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isDateTimeLocked) {
+                            setActiveTimePicker('start');
+                          }
+                        }}
+                        className={`w-11 h-11 -mr-2 rtl:-mr-0 rtl:-ml-2 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
+                          isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
+                        }`}
+                        aria-label={t('Open start time picker', 'فتح وقت البداية')}
+                      >
+                        <Clock className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* End Time */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        {t('End Time', 'النهاية')} *
+                      </label>
+                    </div>
+
+                    <div 
+                      onClick={() => {
+                        if (!isDateTimeLocked) {
+                          setActiveTimePicker('end');
+                        }
+                      }}
+                      className={`h-11 flex items-center justify-between gap-1.5 px-3 rounded-xl border transition-colors ${
+                        isDateTimeLocked
+                          ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                          : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] hover:border-[#3A60AA] focus-within:border-[#3A60AA] cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {formatTime12Hour(endTime, language)}
+                        </span>
+                        {!isDateTimeLocked && (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal truncate">
+                            {t('Tap to change time', 'انقر لتغيير الوقت')}
+                          </span>
+                        )}
+                        <input 
+                          ref={endTimeInputRef}
+                          type="time"
+                          required
+                          value={endTime}
+                          readOnly
+                          disabled={isDateTimeLocked}
+                          tabIndex={-1}
+                          className="sr-only pointer-events-none [&::-webkit-calendar-picker-indicator]:hidden"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isDateTimeLocked}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isDateTimeLocked) {
+                            setActiveTimePicker('end');
+                          }
+                        }}
+                        className={`w-11 h-11 -mr-2 rtl:-mr-0 rtl:-ml-2 flex items-center justify-center rounded-lg bg-white dark:bg-[#131C31] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#22304E] shrink-0 transition-colors ${
+                          isDateTimeLocked ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#EEF3F9] dark:hover:bg-[#142578] cursor-pointer'
+                        }`}
+                        aria-label={t('Open end time picker', 'فتح وقت النهاية')}
+                      >
+                        <Clock className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Section 3: Location */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center">
-                3
-              </span>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                {t('Location', 'الموقع والملعب')}
-              </h3>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  {t('Court / Venue', 'اسم الملعب / المرفق')} *
-                </label>
-                {lockedFields.courtName && !isLinkedLi3ibBooking && (
-                  <button
-                    type="button"
-                    onClick={() => setLockedFields(prev => ({ ...prev, courtName: !prev.courtName }))}
-                    className="text-[11px] text-[#3A60AA] dark:text-[#B9C9E0] hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Unlock className="w-3 h-3" />
-                    <span>{t('Unlock', 'تعديل')}</span>
-                  </button>
-                )}
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('location')}
+              aria-expanded={expandedSections.location}
+              aria-controls="section-location-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  3
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Location & Area', 'الموقع والمنطقة')}
+                </h3>
               </div>
-              <input 
-                type="text"
-                required
-                disabled={isLinkedLi3ibBooking || lockedFields.courtName}
-                value={courtName}
-                onChange={(e) => setCourtName(e.target.value)}
-                placeholder={t('e.g. Mishref Youth Center Stadium', 'مثال: مركز شباب مشرف')}
-                className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-colors ${
-                  isLinkedLi3ibBooking || lockedFields.courtName
-                    ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                    : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
-                }`}
-              />
-            </div>
-
-            {/* Interactive Google Map Location Picker */}
-            <MapLocationPicker
-              value={{
-                coordinates: mapLocation.coordinates,
-                latitude: mapLocation.latitude,
-                longitude: mapLocation.longitude,
-                area: mapLocation.area,
-                address: address,
-                locationLabel: mapLocation.locationLabel
-              }}
-              onChange={(newLoc) => {
-                if (!isLinkedLi3ibBooking) {
-                  setMapLocation(newLoc);
-                  setArea(newLoc.area as KuwaitArea);
-                }
-              }}
-              isLocked={isLinkedLi3ibBooking}
-              venueName={courtName}
-            />
-
-            {/* Street Address / Landmark */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                {t('Address / Landmark', 'العنوان والمعلم')}
-              </label>
-              <input 
-                type="text"
-                disabled={isLinkedLi3ibBooking}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder={t('e.g. Block 6, Oasis Road', 'مثال: قطعة 6، شارع الواحة')}
-                className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-colors ${
-                  isLinkedLi3ibBooking
-                    ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-400 cursor-not-allowed select-none'
-                    : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
-                }`}
-              />
-            </div>
-          </div>
-
-          {/* Section 4: Players & Preferences */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center">
-                4
-              </span>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                {t('Players & Preferences', 'اللاعبون والتفضيلات')}
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Max Players */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                  {t('Max Players', 'العدد الأقصى للاعبين')}
-                </label>
-                <input 
-                  type="number"
-                  min="2"
-                  max="30"
-                  value={maxPlayers}
-                  onChange={(e) => setMaxPlayers(parseInt(e.target.value) || 2)}
-                  className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]"
+              <div className="flex items-center gap-2 shrink-0">
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.location ? 'rotate-180' : 'rotate-0'
+                  }`}
                 />
               </div>
+            </button>
 
-              {/* Gender Preference */}
+            <div
+              id="section-location-content"
+              role="region"
+              aria-label={t('Location & Area', 'الموقع والمنطقة')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.location 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                  {t('Gender Preference', 'الجنس')}
-                </label>
-                <div className="flex rounded-xl bg-slate-100 dark:bg-[#0B1120] p-1 border border-slate-200 dark:border-[#22304E]">
-                  {(['Everyone', 'Men', 'Women'] as GenderPreference[]).map(g => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGender(g)}
-                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                        gender === g ? 'bg-[#3A60AA] text-white font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {g === 'Everyone' ? t('Everyone', 'الجميع') : g === 'Men' ? t('Men', 'رجال') : t('Women', 'نساء')}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Game Visibility */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                  {t('Game Visibility', 'نوع النشر')}
-                </label>
-                <div className="flex rounded-xl bg-slate-100 dark:bg-[#0B1120] p-1 border border-slate-200 dark:border-[#22304E]">
-                  {(['Public', 'Private', 'Invite only'] as GameVisibility[]).map(v => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => setVisibility(v)}
-                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                        visibility === v ? 'bg-[#3A60AA] text-white font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {v === 'Public' ? t('Public', 'عام') : v === 'Private' ? t('Private', 'خاص') : t('Invite', 'دعوات')}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Invite Friends Checklist */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
-                {t('Quick Invite Friends (Optional)', 'دعوة سريعة للأصدقاء (اختياري)')}
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {players.filter(p => p.id !== currentUser.id).slice(0, 6).map(friend => {
-                  const isSelected = selectedFriendIds.includes(friend.id);
-                  return (
-                    <div
-                      key={friend.id}
-                      onClick={() => toggleFriend(friend.id)}
-                      className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-colors ${
-                        isSelected 
-                          ? 'bg-[#EEF3F9] dark:bg-[#142578]/60 border-[#3A60AA] dark:border-[#B9C9E0] text-slate-900 dark:text-white' 
-                          : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
-                      }`}
-                    >
-                      <img 
-                        src={friend.avatar} 
-                        alt={friend.name}
-                        className="w-7 h-7 rounded-full object-cover shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{friend.name.split(' ')[0]}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{getKuwaitAreaLabel(friend.area as any, language)}</p>
-                      </div>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Organizer Description */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                {t('Description / Organizer Notes', 'رسالة المنظم للمشاركين')}
-              </label>
-              <textarea 
-                rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={t('Add notes for players, pitch rules, or directions...', 'أضف ملاحظات للاعبين أو إرشادات الوصول للملعب...')}
-                className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#3A60AA] dark:focus:border-[#B9C9E0] rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
-              />
-            </div>
-          </div>
-
-          {/* Section 5: Booking & Cost Sharing (Optional) */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center">
-                5
-              </span>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                {t('Booking & Cost Sharing (Optional)', 'الحجز وتقاسم التكلفة (اختياري)')}
-              </h3>
-            </div>
-
-            {/* Universal Booking Upload Box */}
-            <div className="p-3.5 sm:p-4 rounded-xl border border-[#B9C9E0] dark:border-[#1F3590] bg-[#EEF3F9]/60 dark:bg-[#06135B]/40 transition-colors">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                  <h4 className="text-xs sm:text-sm font-bold text-[#06135B] dark:text-white">
-                    {t('Upload Your Booking', 'ارفع تأكيد حجزك')}
-                  </h4>
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-[#B9C9E0]/80 bg-white/70 dark:bg-[#06135B]/70 px-1.5 py-0.5 rounded border border-[#B9C9E0]/40 dark:border-[#1F3590]/60">
-                    {t('Optional', 'اختياري')}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowUploadInfoModal(true)}
-                    aria-label={t('How booking upload works', 'كيف يعمل رفع الحجز')}
-                    title={t('How booking upload works', 'كيف يعمل رفع الحجز')}
-                    className="p-1 rounded-full text-slate-400 hover:text-[#3A60AA] dark:hover:text-[#B9C9E0] transition-colors focus:outline-none cursor-pointer"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-600 dark:text-[#B9C9E0]/80 mb-3 leading-relaxed">
-                {t(
-                  'Upload a booking receipt or confirmation from Li3ib, Playtomic, or any venue to automatically fill match details.',
-                  'ارفع إيصال أو لقطة شاشة لحجزك من Li3ib أو Playtomic أو أي ملعب لتعبئة تفاصيل المباراة تلقائياً.'
-                )}
-              </p>
-
-              {/* Hidden file input supporting JPG, JPEG, PNG, WebP, PDF */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                className="hidden"
-                data-testid="booking-file-input"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileSelect(file);
-                }}
-              />
-
-              {/* Upload Zone / Button */}
-              {!uploadedFile && !previewUrl && !isExtracting && (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) handleFileSelect(file);
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
-                  }}
-                  className="border-2 border-dashed border-[#B9C9E0] dark:border-[#1F3590] hover:border-[#3A60AA] dark:hover:border-[#B9C9E0] rounded-xl p-3.5 sm:p-4 text-center cursor-pointer bg-white/60 dark:bg-[#06135B]/60 transition-colors"
-                >
-                  <Upload className="w-5 h-5 sm:w-6 sm:h-6 text-[#3A60AA] dark:text-[#B9C9E0] mx-auto mb-1.5" />
-                  <p className="text-xs font-bold text-[#06135B] dark:text-white mb-0.5">
-                    {t('Click or drag booking confirmation here', 'انقر أو اسحب تأكيد الحجز هنا')}
-                  </p>
-                  <p className="text-[10px] text-slate-500 dark:text-[#B9C9E0]/70">
-                    {t('JPG, PNG, WebP or PDF (Max 10MB)', 'JPG, PNG, WebP أو PDF (الحد الأقصى 10 ميجابايت)')}
-                  </p>
-                </div>
-              )}
-
-              {/* Extraction Progress State */}
-              {isExtracting && (
-                <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/90 dark:bg-[#06135B]/90 border border-[#B9C9E0] dark:border-[#1F3590]">
-                  <Loader2 className="w-5 h-5 text-[#3A60AA] dark:text-[#B9C9E0] animate-spin shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[#06135B] dark:text-white truncate">
-                      {t('Extracting booking details with AI...', 'جارٍ استخراج تفاصيل الحجز بالذكاء الاصطناعي...')}
-                    </p>
-                    <p className="text-[11px] text-slate-500 dark:text-[#B9C9E0]/80 truncate">
-                      {uploadedFile?.name}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Uploaded Confirmation Preview & Controls */}
-              {(uploadedFile || previewUrl) && !isExtracting && (
-                <div className="p-3 rounded-xl bg-white dark:bg-[#06135B] border border-[#B9C9E0] dark:border-[#1F3590] flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {previewUrl ? (
-                      <img
-                        src={previewUrl}
-                        alt="Booking Confirmation Preview"
-                        className="w-10 h-10 object-cover rounded-lg border border-[#B9C9E0] dark:border-[#1F3590] shrink-0"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-[#EEF3F9] dark:bg-[#142578] text-[#3A60AA] dark:text-[#B9C9E0] flex items-center justify-center shrink-0">
-                        <File className="w-5 h-5" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#06135B] dark:text-white truncate">
-                        {uploadedFile?.name || t('Booking Confirmation', 'مستند الحجز')}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-[#B9C9E0]/80">
-                        {confirmedBookingData 
-                          ? (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              {t('Details verified and applied', 'تم التحقق والتطبيق')}
-                            </span>
-                          )
-                          : t('Ready to review', 'جاهز للمراجعة')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {extractedData && (
-                      <button
-                        type="button"
-                        onClick={() => setShowReviewDialog(true)}
-                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-[#3A60AA] text-white hover:bg-[#2E4D8A] transition-colors cursor-pointer"
-                      >
-                        {t('Review', 'مراجعة')}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleReplaceBooking}
-                      title={t('Replace Booking', 'استبدال الحجز')}
-                      className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-[#EEF3F9] dark:hover:bg-[#142578] border border-transparent hover:border-[#B9C9E0] transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRemoveBooking}
-                      title={t('Remove Booking', 'إزالة الحجز')}
-                      className="p-2 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-300 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Error Message if extraction failed */}
-              {extractionError && (
-                <div className="mt-2.5 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-2.5 rounded-lg flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-                  <span className="flex-1">{extractionError}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Court Cost & Cost Sharing Box */}
-            <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Calculator className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                    {t('Court Cost & Estimates', 'تكلفة الملعب والتقديرات')}
-                  </h4>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400">
-                    {t('Total Court Cost (KWD)', 'إجمالي تكلفة الملعب (د.ك)')}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    {t('Court / Venue', 'اسم الملعب / المرفق')} *
                   </label>
-                  {lockedFields.totalCourtCostKWD && !isLinkedLi3ibBooking && (
+                  {lockedFields.courtName && !isLinkedLi3ibBooking && (
                     <button
                       type="button"
-                      onClick={() => setLockedFields(prev => ({ ...prev, totalCourtCostKWD: !prev.totalCourtCostKWD }))}
+                      onClick={() => setLockedFields(prev => ({ ...prev, courtName: !prev.courtName }))}
                       className="text-[11px] text-[#3A60AA] dark:text-[#B9C9E0] hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <Unlock className="w-3 h-3" />
@@ -1406,197 +1164,660 @@ export const CreateGameModal: React.FC = () => {
                   )}
                 </div>
                 <input 
-                  type="number"
-                  step="0.500"
-                  min="0"
-                  disabled={isLinkedLi3ibBooking || lockedFields.totalCourtCostKWD}
-                  value={totalCourtCostKWD}
-                  onChange={(e) => setTotalCourtCostKWD(parseFloat(e.target.value) || 0)}
-                  className={`w-full rounded-xl px-3 py-2 text-sm font-bold focus:outline-none ${
-                    isLinkedLi3ibBooking || lockedFields.totalCourtCostKWD
-                      ? 'bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
-                      : 'bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
+                  id="game-form-court-name"
+                  type="text"
+                  required
+                  disabled={isLinkedLi3ibBooking || lockedFields.courtName}
+                  value={courtName}
+                  onChange={(e) => setCourtName(e.target.value)}
+                  placeholder={t('e.g. Mishref Youth Center Stadium', 'مثال: مركز شباب مشرف')}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-colors ${
+                    isLinkedLi3ibBooking || lockedFields.courtName
+                      ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                      : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
                   }`}
                 />
               </div>
 
-              {/* Split the cost with players Toggle */}
-              <div className="pt-3 border-t border-slate-200 dark:border-[#22304E]">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
-                      <span className="text-xs font-bold text-slate-900 dark:text-white">
-                        {t('Split the cost with players', 'تقاسم التكلفة مع اللاعبين')}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {t(
-                        'When OFF, no payment method is required or shown. When ON, select how players pay.',
-                        'عند الإيقاف، لا تطلب طريقة دفع من اللاعبين. عند التفعيل، اختر طريقة الدفع للمنظم.'
-                      )}
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer select-none">
-                    <input 
-                      type="checkbox"
-                      checked={costSharingEnabled}
-                      onChange={(e) => setCostSharingEnabled(e.target.checked)}
-                      className="sr-only peer"
-                      aria-label="Split the cost with players"
-                    />
-                    <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] rtl:after:left-auto rtl:after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3A60AA]"></div>
+              {/* Interactive Google Map Location Picker */}
+              <MapLocationPicker
+                value={{
+                  coordinates: mapLocation.coordinates,
+                  latitude: mapLocation.latitude,
+                  longitude: mapLocation.longitude,
+                  area: mapLocation.area,
+                  address: address,
+                  locationLabel: mapLocation.locationLabel
+                }}
+                onChange={(newLoc) => {
+                  if (!isLinkedLi3ibBooking) {
+                    setMapLocation(newLoc);
+                    setArea(newLoc.area as KuwaitArea);
+                  }
+                }}
+                isLocked={isLinkedLi3ibBooking}
+                venueName={courtName}
+              />
+
+              {/* Street Address / Landmark (Optional, starts empty for new games) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  {t('Address / Landmark', 'العنوان والمعلم')}
+                </label>
+                <input 
+                  id="game-form-address"
+                  type="text"
+                  disabled={isLinkedLi3ibBooking}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder={t('e.g. Block 6, Oasis Road (Optional)', 'مثال: قطعة 6، شارع الواحة (اختياري)')}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-colors ${
+                    isLinkedLi3ibBooking
+                      ? 'bg-slate-100 dark:bg-[#1B253D] border-slate-200 dark:border-[#22304E] text-slate-400 cursor-not-allowed select-none'
+                      : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
+                  }`}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Players & Preferences */}
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('players')}
+              aria-expanded={expandedSections.players}
+              aria-controls="section-players-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  4
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Players & Preferences', 'اللاعبون والتفضيلات')}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.players ? 'rotate-180' : 'rotate-0'
+                  }`}
+                />
+              </div>
+            </button>
+
+            <div
+              id="section-players-content"
+              role="region"
+              aria-label={t('Players & Preferences', 'اللاعبون والتفضيلات')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.players 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                {/* Max Players */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    {t('Max Players', 'العدد الأقصى للاعبين')}
                   </label>
+                  <input 
+                    id="game-form-max-players"
+                    type="number"
+                    min="2"
+                    max="30"
+                    value={maxPlayers}
+                    onChange={(e) => setMaxPlayers(parseInt(e.target.value) || 2)}
+                    className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]"
+                  />
                 </div>
 
-                {/* When ON: Require host to select one or more methods */}
-                {costSharingEnabled && (
-                  <div className="space-y-3 pt-3 mt-3 border-t border-slate-200 dark:border-[#22304E]">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                        {t('Select Cost-Sharing Method (Required)', 'اختر طريقة تقاسم التكلفة (مطلوبة)')}
-                      </label>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {t('Choose any combination', 'اختر طريقة أو أكثر')}
-                      </span>
-                    </div>
+                {/* Gender Preference */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    {t('Gender Preference', 'الجنس')}
+                  </label>
+                  <div className="flex rounded-xl bg-slate-100 dark:bg-[#0B1120] p-1 border border-slate-200 dark:border-[#22304E]">
+                    {(['Everyone', 'Men', 'Women'] as GenderPreference[]).map(g => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setGender(g)}
+                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                          gender === g ? 'bg-[#3A60AA] text-white font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {g === 'Everyone' ? t('Everyone', 'الجميع') : g === 'Men' ? t('Men', 'رجال') : t('Women', 'نساء')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      {/* Cash */}
+                {/* Game Visibility */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    {t('Game Visibility', 'نوع النشر')}
+                  </label>
+                  <div className="flex rounded-xl bg-slate-100 dark:bg-[#0B1120] p-1 border border-slate-200 dark:border-[#22304E]">
+                    {(['Public', 'Private', 'Invite only'] as GameVisibility[]).map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setVisibility(v)}
+                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                          visibility === v ? 'bg-[#3A60AA] text-white font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {v === 'Public' ? t('Public', 'عام') : v === 'Private' ? t('Private', 'خاص') : t('Invite', 'دعوات')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Invite Friends Checklist */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                  {t('Quick Invite Friends (Optional)', 'دعوة سريعة للأصدقاء (اختياري)')}
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {players.filter(p => p.id !== currentUser.id).slice(0, 6).map(friend => {
+                    const isSelected = selectedFriendIds.includes(friend.id);
+                    return (
                       <div
-                        onClick={() => toggleCostSharingMethod('cash')}
-                        className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
-                          selectedCostSharingMethods.includes('cash')
-                            ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
+                        key={friend.id}
+                        onClick={() => toggleFriend(friend.id)}
+                        className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'bg-[#EEF3F9] dark:bg-[#142578]/60 border-[#3A60AA] dark:border-[#B9C9E0] text-slate-900 dark:text-white' 
                             : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs flex items-center gap-1.5">
-                            {t('Cash', 'نقداً')}
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={selectedCostSharingMethods.includes('cash')}
-                            onChange={() => {}}
-                            aria-label="Cash"
-                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-                          {t('Players pay the host outside La3ib.', 'يدفع اللاعبون للمنظم نقداً خارج تطبيق لعيب.')}
-                        </p>
-                      </div>
-
-                      {/* WAMD */}
-                      <div
-                        onClick={() => toggleCostSharingMethod('wamd')}
-                        className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
-                          selectedCostSharingMethods.includes('wamd')
-                            ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
-                            : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs flex items-center gap-1.5">
-                            {t('WAMD', 'ومض')}
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={selectedCostSharingMethods.includes('wamd')}
-                            onChange={() => {}}
-                            aria-label="WAMD"
-                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-                          {t('Players pay the host using WAMD outside La3ib.', 'يدفع اللاعبون للمنظم عبر ومض خارج تطبيق لعيب.')}
-                        </p>
-                      </div>
-
-                      {/* Request Link */}
-                      <div
-                        onClick={() => toggleCostSharingMethod('request_link')}
-                        className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
-                          selectedCostSharingMethods.includes('request_link')
-                            ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
-                            : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs flex items-center gap-1.5">
-                            {t('Request Link', 'طلب رابط دفع')}
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={selectedCostSharingMethods.includes('request_link')}
-                            onChange={() => {}}
-                            aria-label="Request Link"
-                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-                          {t('Participants can request a payment link from the host.', 'يمكن للمشاركين طلب رابط دفع من المنظم.')}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* WAMD Phone Number Input: Shown when WAMD is selected */}
-                    {selectedCostSharingMethods.includes('wamd') && (
-                      <div className="p-3 bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-xl space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <label 
-                            htmlFor="wamd-phone-number-input"
-                            className="block text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5"
-                          >
-                            {t('WAMD Phone Number', 'رقم هاتف ومض')}
-                            <span className="text-rose-500 font-bold">*</span>
-                          </label>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                            {t('Kuwait mobile (8 digits)', 'رقم كويتي (8 أرقام)')}
-                          </span>
-                        </div>
-                        <input
-                          id="wamd-phone-number-input"
-                          type="tel"
-                          value={wamdPhoneNumber}
-                          onChange={(e) => setWamdPhoneNumber(e.target.value)}
-                          placeholder={t('+965 XXXXXXXX or 8-digit mobile', '+965 XXXXXXXX أو رقم من 8 خانات')}
-                          className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]"
+                        <img 
+                          src={friend.avatar} 
+                          alt={friend.name}
+                          className="w-7 h-7 rounded-full object-cover shrink-0"
                         />
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-                          {t(
-                            'Enter the Kuwait mobile number linked to your bank account for receiving WAMD transfers. Visible only to joined participants.',
-                            'أدخل رقم الهاتف الكويتي المرتبط بحسابك البنكي لاستلام تحويلات ومض. يظهر فقط للاعبين المنضمين للمباراة.'
-                          )}
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{friend.name.split(' ')[0]}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{getKuwaitAreaLabel(friend.area as any, language)}</p>
+                        </div>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />}
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
 
-                    {selectedCostSharingMethods.length === 0 && (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
-                        <ShieldAlert className="w-3.5 h-3.5" />
-                        {t('Please select at least one method.', 'يرجى اختيار طريقة دفع واحدة على الأقل.')}
+          {/* Section 5: Booking Confirmation (Collapsed by Default) */}
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('booking')}
+              aria-expanded={expandedSections.booking}
+              aria-controls="section-booking-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  5
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Booking Confirmation', 'تأكيد الحجز')}
+                  <span className="sr-only">Booking &amp; Cost Sharing (Optional)</span>
+                </h3>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                  hasAttachedConfirmedBooking
+                    ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700'
+                }`}>
+                  {hasAttachedConfirmedBooking ? t('Added', 'مُضاف') : t('Not added', 'لم يُضف')}
+                </span>
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.booking ? 'rotate-180' : 'rotate-0'
+                  }`}
+                />
+              </div>
+            </button>
+
+            <div
+              id="section-booking-content"
+              role="region"
+              aria-label={t('Booking Confirmation', 'تأكيد الحجز')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.booking 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              {/* Universal Booking Upload Box */}
+              <div className="p-3.5 sm:p-4 rounded-xl border border-[#B9C9E0] dark:border-[#1F3590] bg-[#EEF3F9]/60 dark:bg-[#06135B]/40 transition-colors">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                    <h4 className="text-xs sm:text-sm font-bold text-[#06135B] dark:text-white">
+                      {t('Upload Your Booking', 'ارفع تأكيد حجزك')}
+                    </h4>
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-[#B9C9E0]/80 bg-white/70 dark:bg-[#06135B]/70 px-1.5 py-0.5 rounded border border-[#B9C9E0]/40 dark:border-[#1F3590]/60">
+                      {t('Optional', 'اختياري')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowUploadInfoModal(true)}
+                      aria-label={t('How booking upload works', 'كيف يعمل رفع الحجز')}
+                      title={t('How booking upload works', 'كيف يعمل رفع الحجز')}
+                      className="p-1 rounded-full text-slate-400 hover:text-[#3A60AA] dark:hover:text-[#B9C9E0] transition-colors focus:outline-none cursor-pointer"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-600 dark:text-[#B9C9E0]/80 mb-3 leading-relaxed">
+                  {t(
+                    'Upload a booking receipt or confirmation from Li3ib, Playtomic, or any venue to automatically fill match details.',
+                    'ارفع إيصال أو لقطة شاشة لحجزك من Li3ib أو Playtomic أو أي ملعب لتعبئة تفاصيل المباراة تلقائياً.'
+                  )}
+                </p>
+
+                {/* Hidden file input supporting JPG, JPEG, PNG, WebP, PDF */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  data-testid="booking-file-input"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelect(file);
+                  }}
+                />
+
+                {/* Upload Zone / Button */}
+                {!uploadedFile && !previewUrl && !isExtracting && (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleFileSelect(file);
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+                    }}
+                    className="border-2 border-dashed border-[#B9C9E0] dark:border-[#1F3590] hover:border-[#3A60AA] dark:hover:border-[#B9C9E0] rounded-xl p-3.5 sm:p-4 text-center cursor-pointer bg-white/60 dark:bg-[#06135B]/60 transition-colors"
+                  >
+                    <Upload className="w-5 h-5 sm:w-6 sm:h-6 text-[#3A60AA] dark:text-[#B9C9E0] mx-auto mb-1.5" />
+                    <p className="text-xs font-bold text-[#06135B] dark:text-white mb-0.5">
+                      {t('Click or drag booking confirmation here', 'انقر أو اسحب تأكيد الحجز هنا')}
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-[#B9C9E0]/70">
+                      {t('JPG, PNG, WebP or PDF (Max 10MB)', 'JPG, PNG, WebP أو PDF (الحد الأقصى 10 ميجابايت)')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Extraction Progress State */}
+                {isExtracting && (
+                  <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/90 dark:bg-[#06135B]/90 border border-[#B9C9E0] dark:border-[#1F3590]">
+                    <Loader2 className="w-5 h-5 text-[#3A60AA] dark:text-[#B9C9E0] animate-spin shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[#06135B] dark:text-white truncate">
+                        {t('Extracting booking details with AI...', 'جارٍ استخراج تفاصيل الحجز بالذكاء الاصطناعي...')}
                       </p>
-                    )}
-
-                    {/* Estimated Share per player clearly labelled as estimate */}
-                    <div className="bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl p-3 flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-[#3A60AA] dark:text-[#B9C9E0] block">
-                          {t('Estimated Share per Player (Estimate)', 'الحصة التقديرية لكل لاعب (تقديري)')}
-                        </span>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                          {t('Formula:', 'المعادلة:')} {totalCourtCostKWD.toFixed(3)} {t('KWD', 'د.ك')} ÷ {maxPlayers} {t('players', 'لاعبين')}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-1 text-end">
-                        <span className="text-lg font-bold text-slate-900 dark:text-white">{pricePerPlayer.toFixed(3)}</span>
-                        <span className="text-xs font-bold text-[#3A60AA] dark:text-[#B9C9E0]">{t('KWD', 'د.ك')}</span>
-                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-[#B9C9E0]/80 truncate">
+                        {uploadedFile?.name}
+                      </p>
                     </div>
                   </div>
                 )}
+
+                {/* Uploaded Confirmation Preview & Controls */}
+                {(uploadedFile || previewUrl) && !isExtracting && (
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#06135B] border border-[#B9C9E0] dark:border-[#1F3590] flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {previewUrl ? (
+                        <img
+                          src={previewUrl}
+                          alt="Booking Confirmation Preview"
+                          className="w-10 h-10 object-cover rounded-lg border border-[#B9C9E0] dark:border-[#1F3590] shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-[#EEF3F9] dark:bg-[#142578] text-[#3A60AA] dark:text-[#B9C9E0] flex items-center justify-center shrink-0">
+                          <File className="w-5 h-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#06135B] dark:text-white truncate">
+                          {uploadedFile?.name || t('Booking Confirmation', 'مستند الحجز')}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-[#B9C9E0]/80">
+                          {confirmedBookingData 
+                            ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                {t('Details verified and applied', 'تم التحقق والتطبيق')}
+                              </span>
+                            )
+                            : t('Ready to review', 'جاهز للمراجعة')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {extractedData && (
+                        <button
+                          type="button"
+                          onClick={() => setShowReviewDialog(true)}
+                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-[#3A60AA] text-white hover:bg-[#2E4D8A] transition-colors cursor-pointer"
+                        >
+                          {t('Review', 'مراجعة')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleReplaceBooking}
+                        title={t('Replace Booking', 'استبدال الحجز')}
+                        className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-[#EEF3F9] dark:hover:bg-[#142578] border border-transparent hover:border-[#B9C9E0] transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRemoveBooking}
+                        title={t('Remove Booking', 'إزالة الحجز')}
+                        className="p-2 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-300 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message if extraction failed */}
+                {extractionError && (
+                  <div className="mt-2.5 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-2.5 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <span className="flex-1">{extractionError}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 6: Cost Sharing (Collapsed by Default) */}
+          <div className="rounded-2xl bg-white dark:bg-[#0D1629] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => toggleSection('costSharing')}
+              aria-expanded={expandedSections.costSharing}
+              aria-controls="section-cost-sharing-content"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left rtl:text-right hover:bg-slate-50/70 dark:hover:bg-[#131C31]/40 transition-colors cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A60AA]"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-[#3A60AA]/10 dark:bg-[#B9C9E0]/15 text-[#3A60AA] dark:text-[#B9C9E0] text-[11px] font-bold flex items-center justify-center shrink-0">
+                  6
+                </span>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                  {t('Cost Sharing', 'تقاسم التكلفة')}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                  costSharingEnabled
+                    ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700'
+                }`}>
+                  {costSharingEnabled ? t('On', 'مفعّل') : t('Off', 'معطل')}
+                </span>
+                <ChevronDown 
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ease-in-out ${
+                    expandedSections.costSharing ? 'rotate-180' : 'rotate-0'
+                  }`}
+                />
+              </div>
+            </button>
+
+            <div
+              id="section-cost-sharing-content"
+              role="region"
+              aria-label={t('Cost Sharing', 'تقاسم التكلفة')}
+              className={`transition-all duration-200 ease-in-out ${
+                expandedSections.costSharing 
+                  ? 'max-h-[3000px] opacity-100 px-3.5 sm:px-4 pb-3.5 sm:pb-4 space-y-3.5 border-t border-slate-100 dark:border-slate-800/80 pt-3.5' 
+                  : 'max-h-0 opacity-0 px-3.5 sm:px-4 pb-0 overflow-hidden pointer-events-none'
+              }`}
+            >
+              {/* Court Cost & Cost Sharing Box */}
+              <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calculator className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                      {t('Court Cost & Estimates', 'تكلفة الملعب والتقديرات')}
+                    </h4>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                      {t('Total Court Cost (KWD)', 'إجمالي تكلفة الملعب (د.ك)')}
+                    </label>
+                    {lockedFields.totalCourtCostKWD && !isLinkedLi3ibBooking && (
+                      <button
+                        type="button"
+                        onClick={() => setLockedFields(prev => ({ ...prev, totalCourtCostKWD: !prev.totalCourtCostKWD }))}
+                        className="text-[11px] text-[#3A60AA] dark:text-[#B9C9E0] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Unlock className="w-3 h-3" />
+                        <span>{t('Unlock', 'تعديل')}</span>
+                      </button>
+                    )}
+                  </div>
+                  <input 
+                    type="number"
+                    step="0.500"
+                    min="0"
+                    disabled={isLinkedLi3ibBooking || lockedFields.totalCourtCostKWD}
+                    value={totalCourtCostKWD}
+                    onChange={(e) => setTotalCourtCostKWD(parseFloat(e.target.value) || 0)}
+                    className={`w-full rounded-xl px-3 py-2 text-sm font-bold focus:outline-none ${
+                      isLinkedLi3ibBooking || lockedFields.totalCourtCostKWD
+                        ? 'bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] text-slate-500 cursor-not-allowed select-none'
+                        : 'bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] text-slate-900 dark:text-white focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]'
+                    }`}
+                  />
+                </div>
+
+                {/* Split the cost with players Toggle */}
+                <div className="pt-3 border-t border-slate-200 dark:border-[#22304E]">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {t('Split the cost with players', 'تقاسم التكلفة مع اللاعبين')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {t(
+                          'When OFF, no payment method is required or shown. When ON, select how players pay.',
+                          'عند الإيقاف، لا تطلب طريقة دفع من اللاعبين. عند التفعيل، اختر طريقة الدفع للمنظم.'
+                        )}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer select-none">
+                      <input 
+                        type="checkbox"
+                        checked={costSharingEnabled}
+                        onChange={(e) => setCostSharingEnabled(e.target.checked)}
+                        className="sr-only peer"
+                        aria-label="Split the cost with players"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] rtl:after:left-auto rtl:after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3A60AA]"></div>
+                    </label>
+                  </div>
+
+                  {/* When ON: Require host to select one or more methods */}
+                  {costSharingEnabled && (
+                    <div className="space-y-3 pt-3 mt-3 border-t border-slate-200 dark:border-[#22304E]">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                          {t('Select Cost-Sharing Method (Required)', 'اختر طريقة تقاسم التكلفة (مطلوبة)')}
+                        </label>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {t('Choose any combination', 'اختر طريقة أو أكثر')}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* Cash */}
+                        <div
+                          onClick={() => toggleCostSharingMethod('cash')}
+                          className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
+                            selectedCostSharingMethods.includes('cash')
+                              ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
+                              : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-xs flex items-center gap-1.5">
+                              {t('Cash', 'نقداً')}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedCostSharingMethods.includes('cash')}
+                              onChange={() => {}}
+                              aria-label="Cash"
+                              className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            {t('Players pay the host outside La3ib.', 'يدفع اللاعبون للمنظم نقداً خارج تطبيق لعيب.')}
+                          </p>
+                        </div>
+
+                        {/* WAMD */}
+                        <div
+                          onClick={() => toggleCostSharingMethod('wamd')}
+                          className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
+                            selectedCostSharingMethods.includes('wamd')
+                              ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
+                              : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-xs flex items-center gap-1.5">
+                              {t('WAMD', 'ومض')}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedCostSharingMethods.includes('wamd')}
+                              onChange={() => {}}
+                              aria-label="WAMD"
+                              className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            {t('Players pay the host using WAMD outside La3ib.', 'يدفع اللاعبون للمنظم عبر ومض خارج تطبيق لعيب.')}
+                          </p>
+                        </div>
+
+                        {/* Request Link */}
+                        <div
+                          onClick={() => toggleCostSharingMethod('request_link')}
+                          className={`p-3 rounded-xl border text-start transition-colors cursor-pointer select-none flex flex-col justify-between ${
+                            selectedCostSharingMethods.includes('request_link')
+                              ? 'bg-[#EEF3F9] dark:bg-[#0D1C68] border-[#3A60AA] dark:border-[#B9C9E0] text-[#06135B] dark:text-white'
+                              : 'bg-white dark:bg-[#131C31] border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-xs flex items-center gap-1.5">
+                              {t('Request Link', 'طلب رابط دفع')}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedCostSharingMethods.includes('request_link')}
+                              onChange={() => {}}
+                              aria-label="Request Link"
+                              className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-[#3A60AA] pointer-events-none"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            {t('Participants can request a payment link from the host.', 'يمكن للمشاركين طلب رابط دفع من المنظم.')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* WAMD Phone Number Input: Shown when WAMD is selected */}
+                      {selectedCostSharingMethods.includes('wamd') && (
+                        <div className="p-3 bg-white dark:bg-[#131C31] border border-slate-200 dark:border-[#22304E] rounded-xl space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label 
+                              htmlFor="wamd-phone-number-input"
+                              className="block text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5"
+                            >
+                              {t('WAMD Phone Number', 'رقم هاتف ومض')}
+                              <span className="text-rose-500 font-bold">*</span>
+                            </label>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                              {t('Kuwait mobile (8 digits)', 'رقم كويتي (8 أرقام)')}
+                            </span>
+                          </div>
+                          <input
+                            id="game-form-wamd-phone"
+                            type="tel"
+                            value={wamdPhoneNumber}
+                            onChange={(e) => setWamdPhoneNumber(e.target.value)}
+                            placeholder={t('+965 XXXXXXXX or 8-digit mobile', '+965 XXXXXXXX أو رقم من 8 خانات')}
+                            className="w-full bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-[#3A60AA] dark:focus:border-[#B9C9E0]"
+                          />
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                            {t(
+                              'Enter the Kuwait mobile number linked to your bank account for receiving WAMD transfers. Visible only to joined participants.',
+                              'أدخل رقم الهاتف الكويتي المرتبط بحسابك البنكي لاستلام تحويلات ومض. يظهر فقط للاعبين المنضمين للمباراة.'
+                            )}
+                          </p>
+                        </div>
+                      )}
+
+                      {selectedCostSharingMethods.length === 0 && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          {t('Please select at least one method.', 'يرجى اختيار طريقة دفع واحدة على الأقل.')}
+                        </p>
+                      )}
+
+                      {/* Estimated Share per player clearly labelled as estimate */}
+                      <div className="bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl p-3 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-[#3A60AA] dark:text-[#B9C9E0] block">
+                            {t('Estimated Share per Player (Estimate)', 'الحصة التقديرية لكل لاعب (تقديري)')}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {t('Formula:', 'المعادلة:')} {totalCourtCostKWD.toFixed(3)} {t('KWD', 'د.ك')} ÷ {maxPlayers} {t('players', 'لاعبين')}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-1 text-end">
+                          <span className="text-lg font-bold text-slate-900 dark:text-white">{pricePerPlayer.toFixed(3)}</span>
+                          <span className="text-xs font-bold text-[#3A60AA] dark:text-[#B9C9E0]">{t('KWD', 'د.ك')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -136,6 +136,30 @@ import {
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
 import { resolveGameLocation, coordinatesToLatLng } from '../lib/location';
+import { isAdminSessionActive, getStoredAdminToken, clearStoredAdminToken } from '../config/launchMode';
+
+export const ADMIN_SESSION_USER: UserProfile = {
+  id: 'admin_session',
+  uid: 'admin_session',
+  name: 'Administrator',
+  nameAr: 'المشرف',
+  username: 'admin',
+  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+  photoURL: undefined,
+  bannerUrl: undefined,
+  area: 'Kuwait City',
+  bio: 'La3ib Administrator',
+  email: 'khalidalami5555@gmail.com',
+  favoriteSports: ['Football', 'Padel', 'Basketball', 'Volleyball', 'Tennis'],
+  skills: { Football: 'Advanced', Padel: 'Advanced' },
+  gamesPlayed: 0,
+  gamesHosted: 0,
+  attendanceRate: 100,
+  isOrganizer: true,
+  isAdmin: true,
+  isDemoUser: false,
+  privacy: { showAge: true, showPhone: false, allowDirectInvites: true }
+};
 
 export const GUEST_USER: UserProfile = {
   id: 'guest',
@@ -371,7 +395,10 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() => {
+    if (isAdminSessionActive()) return 'authenticated';
+    return 'loading';
+  });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'forgot_password'>('login');
@@ -423,7 +450,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(GUEST_USER);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    if (isAdminSessionActive()) {
+      const storedEmail = (typeof localStorage !== 'undefined' ? localStorage.getItem('la3ib_admin_bypass_email') : null) || 'khalidalami5555@gmail.com';
+      return { ...ADMIN_SESSION_USER, email: storedEmail };
+    }
+    return GUEST_USER;
+  });
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [isNewlyRegistered, setIsNewlyRegistered] = useState(false);
@@ -1107,7 +1140,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } else {
         setFirebaseUser(null);
-        if (isDemoActive) {
+        if (isAdminSessionActive()) {
+          const storedEmail = (typeof localStorage !== 'undefined' ? localStorage.getItem('la3ib_admin_bypass_email') : null) || 'khalidalami5555@gmail.com';
+          setAuthStatus('authenticated');
+          setCurrentUser({ ...ADMIN_SESSION_USER, email: storedEmail });
+        } else if (isDemoActive) {
           setAuthStatus('demo');
           setCurrentUser({ ...CURRENT_USER, isDemoUser: true, isAdmin: false });
         } else {
@@ -1228,6 +1265,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = async () => {
     setIsDemoActive(false);
+    clearStoredAdminToken();
+    try {
+      sessionStorage.removeItem('la3ib_open_admin_modal');
+    } catch {}
     if (firebaseUser) {
       await logoutUser();
     }
@@ -1235,6 +1276,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFirebaseUser(null);
     setAuthStatus('unauthenticated');
     setCurrentUser(GUEST_USER);
+    setAdminModalOpen(false);
     setIsTutorialOpen(false);
     setFirestoreFollowingIds(new Set());
     setFirestoreFriendIds(new Set());
@@ -1526,7 +1568,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
   const [safetyModalOpen, setSafetyModalOpen] = useState(false);
-  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminModalOpen, setAdminModalOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      if (sessionStorage.getItem('la3ib_open_admin_modal') === 'true') {
+        sessionStorage.removeItem('la3ib_open_admin_modal');
+        return true;
+      }
+    } catch {}
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (sessionStorage.getItem('la3ib_open_admin_modal') === 'true') {
+        sessionStorage.removeItem('la3ib_open_admin_modal');
+        setAdminModalOpen(true);
+      }
+    } catch {}
+  }, []);
 
   // Pending game invitation state (for direct URLs /game/:gameId or ?game=:gameId)
   const [pendingInviteGameId, setPendingInviteGameId] = useState<string | null>(() => {
@@ -3183,6 +3244,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reason: string, 
     reportId?: string
   ): Promise<void> => {
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/cancel-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ gameId, reason, reportId })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to cancel game');
+      }
+      setFirestoreGames(prev => prev.map(g => g.id === gameId ? { ...g, status: 'Cancelled' as const } : g));
+      setDemoGames(prev => prev.map(g => g.id === gameId ? { ...g, status: 'Cancelled' as const } : g));
+      if (selectedGameForDetail && selectedGameForDetail.id === gameId) {
+        setSelectedGameForDetail(prev => prev ? { ...prev, status: 'Cancelled' as const } : null);
+      }
+      return;
+    }
+
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         const updatedGame = await moderateCancelGameInFirestore(gameId, reason, reportId);
@@ -3226,6 +3309,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     canOrganize: boolean,
     reason?: string
   ): Promise<void> => {
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/set-organizing-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ targetUserId: userId, canOrganize, reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to update athlete organizing status');
+      }
+      setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, canOrganize } : p));
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, canOrganize } : p));
+      return;
+    }
+
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await setAthleteOrganizingStatusInFirestore(userId, canOrganize, reason);
@@ -3254,6 +3356,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       canOrganize: false
     };
 
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/ban-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          targetUserId: userId,
+          reason: options.reason,
+          isPermanent: options.isPermanent,
+          expiresAt: options.expiresAt
+        })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to ban player');
+      }
+      setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...banUpdates } : p));
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...banUpdates } : p));
+      return;
+    }
+
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await banPlayerInFirestore(userId, options);
@@ -3281,6 +3407,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       banReason: undefined
     };
 
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/unban-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ targetUserId: userId, reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to unban player');
+      }
+      setFirestorePlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...unbanUpdates } : p));
+      setDemoPlayers(prev => prev.map(p => (p.id === userId || p.uid === userId) ? { ...p, ...unbanUpdates } : p));
+      return;
+    }
+
     if (authStatus === 'authenticated' && !isDemoActive) {
       try {
         await unbanPlayerInFirestore(userId, reason);
@@ -3305,6 +3450,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): Promise<void> => {
     if (confirmation.trim() !== 'DELETE') {
       throw new Error('Confirmation string "DELETE" is required to delete player account.');
+    }
+
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/delete-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ targetUserId: userId, confirmation, reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to delete player account');
+      }
+      setFirestorePlayers(prev => prev.filter(p => p.id !== userId && p.uid !== userId));
+      setDemoPlayers(prev => prev.filter(p => p.id !== userId && p.uid !== userId));
+      setFirestoreGames(prev => prev.filter(g => g.organizer?.id !== userId && (g as any).organizerId !== userId));
+      setMyFirestoreGames(prev => prev.filter(g => g.organizer?.id !== userId && (g as any).organizerId !== userId));
+      return;
     }
 
     if (authStatus === 'authenticated' && !isDemoActive) {
@@ -3759,6 +3925,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(language === 'ar' ? 'غير مصرح: صلاحيات المسؤول مطلوبة' : 'Unauthorized: Admin privileges required');
     }
 
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/edit-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ gameId, updates: input, reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to edit game');
+      }
+      let resultGame: Game | undefined;
+      setFirestoreGames(prev => prev.map(g => {
+        if (g.id !== gameId) return g;
+        const updated: Game = { ...g, ...input as any };
+        resultGame = updated;
+        return updated;
+      }));
+      setDemoGames(prev => prev.map(g => {
+        if (g.id !== gameId) return g;
+        const updated: Game = { ...g, ...input as any };
+        resultGame = updated;
+        return updated;
+      }));
+      const matched = games.find(g => g.id === gameId);
+      return resultGame || (matched ? { ...matched, ...input as any } : { id: gameId } as Game);
+    }
+
     if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
       return await adminEditGameInFirestore(gameId, input, adminUid, reason);
     } else {
@@ -3798,7 +3995,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(language === 'ar' ? 'غير مصرح: صلاحيات المسؤول مطلوبة' : 'Unauthorized: Admin privileges required');
     }
 
-    if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
+    const adminToken = getStoredAdminToken();
+    if (adminToken && !firebaseUser) {
+      const res = await fetch('/api/admin/moderate-player-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ targetUserId, updates: input, reason })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Failed to moderate player profile');
+      }
+    } else if (authStatus === 'authenticated' && firebaseUser && !isDemoActive && isFirebaseConfigured) {
       await adminModeratePlayerProfileInFirestore(targetUserId, input, adminUid, reason);
     }
 

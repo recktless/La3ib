@@ -230,7 +230,7 @@ export const Sidebar: React.FC = () => {
             <span>{t('Community Guidelines', 'إرشادات المجتمع')}</span>
           </button>
 
-          {currentUser.isAdmin && authStatus === 'authenticated' && !currentUser.isDemoUser && (
+          {currentUser.isAdmin && !currentUser.isDemoUser && (
             <button
               type="button"
               onClick={() => {

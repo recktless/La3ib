@@ -401,7 +401,7 @@ export const Header: React.FC = () => {
                       <ShieldCheck className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
                       <span>{t('Community & Safety Guidelines', 'إرشادات المجتمع والسلامة')}</span>
                     </button>
-                    {currentUser.isAdmin && authStatus === 'authenticated' && !currentUser.isDemoUser && (
+                    {currentUser.isAdmin && !currentUser.isDemoUser && (
                       <button
                         type="button"
                         onClick={() => {
@@ -422,7 +422,7 @@ export const Header: React.FC = () => {
           )}
 
           {/* Admin Panel Direct Link (Desktop when sidebar is expanded) */}
-          {!isDesktopSidebarCollapsed && currentUser.isAdmin && authStatus === 'authenticated' && !currentUser.isDemoUser && (
+          {!isDesktopSidebarCollapsed && currentUser.isAdmin && !currentUser.isDemoUser && (
             <button
               type="button"
               onClick={() => setAdminModalOpen(true)}

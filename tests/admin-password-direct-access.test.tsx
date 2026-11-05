@@ -52,7 +52,15 @@ describe('Admin Password Direct Access & No Account Dependency', () => {
       expect(html).toContain('Administrator Access');
       expect(html).toContain('Enter admin password to open dashboard');
       expect(html).toContain('Admin Bypass Password');
+      expect(html).toContain('Enter');
       expect(html).toContain('Unlock Full App');
+
+      // Must be mobile friendly numeric input with enterKeyHint
+      expect(html.toLowerCase()).toContain('inputmode="numeric"');
+      expect(html.toLowerCase()).toContain('enterkeyhint="go"');
+
+      // The user should only ever see one password field and one Enter button (no extra Cancel button in form)
+      expect(html).not.toContain('>Cancel<');
 
       // MUST NOT contain any Firebase account sign-in fields or prompts
       expect(html).not.toContain('Sign in with Google');

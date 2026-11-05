@@ -334,27 +334,27 @@ export default function App() {
 
     fetch('/api/admin/check-coming-soon-bypass', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      credentials: 'include',
       body: JSON.stringify({ token })
     })
       .then(async (res) => {
-        if (!res.ok) return { valid: false };
+        if (!res.ok) return null;
         const text = await res.text();
-        if (!text || !text.trim()) return { valid: false };
+        if (!text || !text.trim() || text.trim().startsWith('<')) return null;
         try {
           return JSON.parse(text);
         } catch {
-          return { valid: false };
+          return null;
         }
       })
       .then((data: any) => {
-        if (!data || !data.valid) {
-          try {
-            sessionStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
-            localStorage.removeItem(ADMIN_BYPASS_STORAGE_KEY);
-            sessionStorage.removeItem('la3ib_admin_bypass_email');
-            localStorage.removeItem('la3ib_admin_bypass_email');
-          } catch {}
+        if (!data) return; // Retain current session on non-JSON/proxy response
+        if (data.valid === false) {
+          clearStoredAdminToken();
           setAdminBypassed(false);
         } else if (data.email) {
           setAdminEmail(data.email);

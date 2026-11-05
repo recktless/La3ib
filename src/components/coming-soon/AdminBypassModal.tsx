@@ -11,31 +11,35 @@ const AUTHORIZED_ADMIN_EMAIL = 'khalidalami5555@gmail.com';
 
 /**
  * Safely parse HTTP response to prevent 'Unexpected end of JSON input' syntax errors.
- * Inspects body text and status before attempting JSON deserialization.
+ * Inspects content-type, body text, and status before attempting JSON deserialization.
  */
 async function safeParseJsonResponse<T = any>(response: Response): Promise<{
   ok: boolean;
   status: number;
   data: T | null;
   rawText: string;
+  isHtml: boolean;
 }> {
   let rawText = '';
   try {
     rawText = await response.text();
   } catch {
-    return { ok: false, status: response.status, data: null, rawText: '' };
+    return { ok: false, status: response.status, data: null, rawText: '', isHtml: false };
   }
 
   const trimmed = rawText.trim();
-  if (!trimmed) {
-    return { ok: response.ok, status: response.status, data: null, rawText: '' };
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const isHtml = contentType.includes('text/html') || trimmed.startsWith('<') || trimmed.toLowerCase().includes('<!doctype');
+
+  if (!trimmed || isHtml) {
+    return { ok: response.ok, status: response.status, data: null, rawText: trimmed, isHtml };
   }
 
   try {
     const data = JSON.parse(trimmed) as T;
-    return { ok: response.ok, status: response.status, data, rawText: trimmed };
+    return { ok: response.ok, status: response.status, data, rawText: trimmed, isHtml: false };
   } catch {
-    return { ok: false, status: response.status, data: null, rawText: trimmed };
+    return { ok: false, status: response.status, data: null, rawText: trimmed, isHtml: false };
   }
 }
 
@@ -64,14 +68,16 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
     setError(null);
 
     try {
-      // Safe fetch call to verify bypass password
+      // Safe, cross-origin and mobile-compatible fetch call to verify bypass password
       let response: Response;
       try {
         response = await fetch('/api/admin/verify-coming-soon-bypass', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           },
+          credentials: 'include',
           body: JSON.stringify({
             password: password.trim()
           })
@@ -104,6 +110,16 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
             t(
               `The verification service returned an empty or invalid response (HTTP ${response.status}). The server may be restarting. Please retry in a moment.`,
               `أعاد خادم التحقق استجابة غير صالحة (${response.status}). قد يكون الخادم قيد إعادة التشغيل، يرجى المحاولة بعد قليل.`
+            )
+          );
+          return;
+        }
+
+        if (parsed.isHtml || response.status === 404) {
+          setError(
+            t(
+              `The verification service returned an HTML response instead of JSON (HTTP ${response.status}). Check server deployment routing.`,
+              `أعاد خادم التحقق استجابة HTML بدلاً من JSON (${response.status}). يرجى التحقق من إعدادات الخادم.`
             )
           );
           return;
@@ -196,7 +212,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center"
+              className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
               aria-label={t('Close', 'إغلاق')}
             >
               <X className="w-4 h-4" />
@@ -204,7 +220,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
           </div>
         </div>
 
-        {/* Form */}
+        {/* Form: One password field and one Enter button */}
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <div
@@ -225,6 +241,9 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
               <input
                 type="password"
                 inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="current-password"
+                enterKeyHint="go"
                 maxLength={10}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -240,29 +259,23 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
             </p>
           </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              {t('Cancel', 'إلغاء')}
-            </button>
+          {/* Single Enter Button */}
+          <div className="pt-2">
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 rounded-xl bg-[#1E40AF] hover:bg-[#1E3A8A] text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              className="w-full py-2.5 px-4 rounded-xl bg-[#1E40AF] hover:bg-[#1E3A8A] text-white text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 interactive-tap"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span>{t('Verifying...', 'جارٍ التحقق...')}</span>
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{t('Unlock Full App', 'دخول التطبيق')}</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{t('Enter', 'دخول')}</span>
+                  <span className="sr-only">Unlock Full App</span>
                 </>
               )}
             </button>

@@ -12,6 +12,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Universal CORS & Preflight Middleware for Mobile & Cross-Origin Compatibility
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, HEAD');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
 app.use(express.json({ limit: '20mb' }));
 
 // Custom middleware to ensure JSON syntax errors return valid JSON instead of HTML
@@ -330,10 +346,13 @@ Return strictly a JSON object conforming to this schema, with no markdown code b
 // Admin Authorization Middleware
 async function checkAdminRequest(req: express.Request): Promise<{ authorized: boolean; uid?: string; error?: string }> {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { authorized: false, error: 'Authentication required. Missing Bearer token.' };
+  const cookieMatch = req.headers.cookie?.match(/la3ib_admin_session=([^;]+)/);
+  const cookieToken = cookieMatch ? cookieMatch[1].trim() : null;
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : cookieToken;
+
+  if (!token) {
+    return { authorized: false, error: 'Authentication required. Missing Bearer token or session cookie.' };
   }
-  const token = authHeader.slice(7).trim();
 
   // 1. Check if it's an HMAC-signed admin bypass token
   const bypassCheck = verifyAdminBypassToken(token);
@@ -696,6 +715,9 @@ app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
     const bypassToken = generateAdminBypassToken('admin-session', adminEmail);
     console.log(`[Admin Access] Administrator verified successfully by password.`);
 
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.setHeader('Set-Cookie', `la3ib_admin_session=${bypassToken}; Path=/; SameSite=Lax; Max-Age=86400; HttpOnly${isSecure ? '; Secure' : ''}`);
+
     return res.status(200).json({
       success: true,
       bypassToken,
@@ -716,7 +738,10 @@ app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
 app.post('/api/admin/check-coming-soon-bypass', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const token = req.body?.token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null);
+    const cookieMatch = req.headers.cookie?.match(/la3ib_admin_session=([^;]+)/);
+    const cookieToken = cookieMatch ? cookieMatch[1].trim() : null;
+    const token = req.body?.token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null) || cookieToken;
+
     if (!token) {
       return res.status(200).json({ valid: false });
     }

@@ -7,7 +7,7 @@ interface AdminBypassModalProps {
   onSuccess: (token: string, email?: string) => void;
 }
 
-const AUTHORIZED_ADMIN_EMAIL = 'khalidalami5555@gmail.com';
+import { setStoredAdminToken, validateAdminSessionWithServer } from '../../config/launchMode';
 
 /**
  * Safely parse HTTP response to prevent 'Unexpected end of JSON input' syntax errors.
@@ -154,12 +154,28 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
         return;
       }
 
-      // Success: Admin bypass session token returned
+      // Success: Website access session token returned
       if (data.bypassToken) {
-        onSuccess(data.bypassToken, data.adminEmail || AUTHORIZED_ADMIN_EMAIL);
+        // 1. Establish session in client storage & cookies
+        setStoredAdminToken(data.bypassToken);
+        
+        // 2. Confirm session validity with server before unlocking application
+        const validation = await validateAdminSessionWithServer(data.bypassToken);
+        if (validation.status === 'invalid') {
+          setError(
+            t(
+              'Session confirmation failed. Please re-enter the password.',
+              'فشل تأكيد جلسة الدخول. يرجى إعادة إدخال الرمز.'
+            )
+          );
+          return;
+        }
+
+        // 3. Session established & confirmed: unlock application directly
+        onSuccess(data.bypassToken);
         onClose();
       } else {
-        setError(t('Verification passed but bypass token was not returned.', 'تم التحقق بنجاح لكن لم يتم استلام رمز العبور.'));
+        setError(t('Verification passed but access token was not returned.', 'تم التحقق بنجاح لكن لم يتم استلام رمز الدخول.'));
       }
     } catch (err: any) {
       console.error('[AdminBypassModal] Verification error:', err);

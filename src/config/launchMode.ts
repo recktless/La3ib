@@ -71,5 +71,101 @@ export function clearStoredAdminToken(): void {
 }
 
 export function isAdminSessionActive(): boolean {
-  return Boolean(getStoredAdminToken());
+  const token = getStoredAdminToken();
+  if (!token) return false;
+  return !isTokenLocallyExpired(token);
+}
+
+export type AdminAuthState = 'checking' | 'authenticated' | 'unauthenticated';
+
+export function isTokenLocallyExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return false;
+    let base64 = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+    const jsonStr = atob(base64);
+    const payload = JSON.parse(jsonStr);
+    if (typeof payload.exp === 'number' && Date.now() > payload.exp) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export interface SessionValidationResult {
+  status: 'valid' | 'invalid' | 'indeterminate';
+  email?: string;
+  uid?: string;
+  error?: string;
+}
+
+export async function validateAdminSessionWithServer(tokenParam?: string): Promise<SessionValidationResult> {
+  const token = tokenParam || getStoredAdminToken();
+
+  if (token && isTokenLocallyExpired(token)) {
+    return { status: 'invalid', error: 'Session expired locally' };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch('/api/admin/check-coming-soon-bypass', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ token: token || undefined })
+    });
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return { status: 'invalid', error: `Server returned ${res.status}` };
+      }
+      return { status: 'indeterminate', error: `Server returned ${res.status}` };
+    }
+
+    const text = await res.text();
+    const trimmed = text ? text.trim() : '';
+
+    // If server returned HTML (e.g. SPA fallback rewrite), it's indeterminate, not invalid
+    if (!trimmed || trimmed.startsWith('<') || trimmed.toLowerCase().includes('<!doctype')) {
+      return { status: 'indeterminate', error: 'Received HTML instead of JSON' };
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(trimmed);
+    } catch {
+      return { status: 'indeterminate', error: 'JSON parse error' };
+    }
+
+    if (data.valid === true) {
+      return { status: 'valid', email: data.email, uid: data.uid };
+    } else if (data.valid === false) {
+      return { status: 'invalid', error: data.error || 'Server rejected session' };
+    }
+
+    return { status: 'indeterminate', error: 'Unexpected response format' };
+  } catch (err: any) {
+    return { status: 'indeterminate', error: err?.message || 'Network error' };
+  }
+}
+
+export async function logoutAdminSession(): Promise<void> {
+  clearStoredAdminToken();
+  try {
+    await fetch('/api/admin/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include'
+    });
+  } catch {}
 }

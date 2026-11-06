@@ -343,24 +343,16 @@ Return strictly a JSON object conforming to this schema, with no markdown code b
   }
 });
 
-// Admin Authorization Middleware
+// Admin Authorization Middleware - ONLY authorizes authentic Firebase admin user
 async function checkAdminRequest(req: express.Request): Promise<{ authorized: boolean; uid?: string; error?: string }> {
   const authHeader = req.headers.authorization;
-  const cookieMatch = req.headers.cookie?.match(/la3ib_admin_session=([^;]+)/);
-  const cookieToken = cookieMatch ? cookieMatch[1].trim() : null;
-  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : cookieToken;
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : null;
 
   if (!token) {
-    return { authorized: false, error: 'Authentication required. Missing Bearer token or session cookie.' };
+    return { authorized: false, error: 'Authentication required. Missing Bearer token.' };
   }
 
-  // 1. Check if it's an HMAC-signed admin bypass token
-  const bypassCheck = verifyAdminBypassToken(token);
-  if (bypassCheck.valid && bypassCheck.email?.toLowerCase().trim() === 'khalidalami5555@gmail.com') {
-    return { authorized: true, uid: bypassCheck.uid || 'admin-session' };
-  }
-
-  // 2. Otherwise verify Firebase Auth ID token
+  // Verify Firebase Auth ID token
   const tokenCheck = await verifyFirebaseToken(token);
   if (!tokenCheck.valid || !tokenCheck.uid) {
     return { authorized: false, error: tokenCheck.error || 'Invalid authentication token.' };
@@ -646,10 +638,10 @@ function getClientIp(req: express.Request): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function generateAdminBypassToken(uid: string, email: string): string {
+function generateAdminBypassToken(): string {
   const payload = {
-    uid,
-    email,
+    role: 'website_visitor',
+    access: true,
     exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
   };
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -657,7 +649,7 @@ function generateAdminBypassToken(uid: string, email: string): string {
   return `${data}.${signature}`;
 }
 
-function verifyAdminBypassToken(token: string): { valid: boolean; email?: string; uid?: string } {
+function verifyAdminBypassToken(token: string): { valid: boolean } {
   try {
     const parts = token.split('.');
     if (parts.length !== 2) return { valid: false };
@@ -666,13 +658,13 @@ function verifyAdminBypassToken(token: string): { valid: boolean; email?: string
     if (signature !== expectedSignature) return { valid: false };
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
     if (Date.now() > payload.exp) return { valid: false };
-    return { valid: true, email: payload.email, uid: payload.uid };
+    return { valid: true };
   } catch {
     return { valid: false };
   }
 }
 
-// Admin Bypass API: Secure password verification establishing direct admin session
+// Website Early Access API: Password verification establishing visitor website session
 app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
@@ -710,10 +702,9 @@ app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
     // Success: Clear rate-limit attempts
     bypassAttemptMap.delete(clientIp);
 
-    // Generate cryptographic bypass token granting direct admin access
-    const adminEmail = 'khalidalami5555@gmail.com';
-    const bypassToken = generateAdminBypassToken('admin-session', adminEmail);
-    console.log(`[Admin Access] Administrator verified successfully by password.`);
+    // Generate cryptographic token granting website early access
+    const bypassToken = generateAdminBypassToken();
+    console.log(`[Website Access] Visitor granted early access via password.`);
 
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.setHeader('Set-Cookie', `la3ib_admin_session=${bypassToken}; Path=/; SameSite=Lax; Max-Age=86400; HttpOnly${isSecure ? '; Secure' : ''}`);
@@ -721,20 +712,19 @@ app.post('/api/admin/verify-coming-soon-bypass', async (req, res) => {
     return res.status(200).json({
       success: true,
       bypassToken,
-      adminEmail,
-      message: 'Administrator bypass access granted.'
+      message: 'Website access granted.'
     });
   } catch (err: any) {
-    console.error('[Admin Bypass] Server verification unexpected error:', err);
+    console.error('[Website Access] Server verification unexpected error:', err);
     return res.status(500).json({
       success: false,
-      error: 'An unexpected server error occurred during administrator verification.',
-      errorAr: 'حدث خطأ غير متوقع في الخادم أثناء التحقق من الإدارة.'
+      error: 'An unexpected server error occurred during password verification.',
+      errorAr: 'حدث خطأ غير متوقع في الخادم أثناء التحقق.'
     });
   }
 });
 
-// Admin Bypass API: Validate existing bypass session
+// Website Early Access API: Validate existing website access session
 app.post('/api/admin/check-coming-soon-bypass', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
@@ -746,11 +736,22 @@ app.post('/api/admin/check-coming-soon-bypass', (req, res) => {
       return res.status(200).json({ valid: false });
     }
     const result = verifyAdminBypassToken(token);
-    return res.status(200).json(result);
+    return res.status(200).json({ valid: result.valid });
   } catch (err: any) {
-    console.error('[Admin Bypass] Server check unexpected error:', err);
+    console.error('[Website Access] Server check unexpected error:', err);
     return res.status(200).json({ valid: false });
   }
+});
+
+// Admin Bypass API: Clear existing admin bypass session
+app.post('/api/admin/logout', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.setHeader(
+    'Set-Cookie',
+    `la3ib_admin_session=; Path=/; SameSite=Lax; Max-Age=0; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT${isSecure ? '; Secure' : ''}`
+  );
+  return res.status(200).json({ success: true, message: 'Administrator session cleared successfully.' });
 });
 
 // Dynamic Open Graph and direct invite endpoint for /game/:gameId

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -31,7 +31,18 @@ import { NotificationsModal } from './components/NotificationsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { LogIn, Ban, AlertCircle, X } from 'lucide-react';
-import { COMING_SOON_MODE, ADMIN_BYPASS_STORAGE_KEY, setStoredAdminToken, clearStoredAdminToken } from './config/launchMode';
+import { 
+  COMING_SOON_MODE, 
+  ADMIN_BYPASS_STORAGE_KEY, 
+  ADMIN_BYPASS_EMAIL_KEY,
+  AdminAuthState,
+  getStoredAdminToken,
+  setStoredAdminToken, 
+  clearStoredAdminToken,
+  isTokenLocallyExpired,
+  validateAdminSessionWithServer,
+  logoutAdminSession
+} from './config/launchMode';
 import { ComingSoonPage } from './components/coming-soon/ComingSoonPage';
 import { AdminBypassBanner } from './components/coming-soon/AdminBypassBanner';
 
@@ -305,99 +316,96 @@ export const AppContent: React.FC = () => {
 };
 
 export default function App() {
-  const [adminBypassed, setAdminBypassed] = useState<boolean>(() => {
-    if (!COMING_SOON_MODE) return true;
+  const [adminAuthState, setAdminAuthState] = useState<AdminAuthState>(() => {
+    if (!COMING_SOON_MODE) return 'authenticated';
     try {
-      const stored = sessionStorage.getItem(ADMIN_BYPASS_STORAGE_KEY) || localStorage.getItem(ADMIN_BYPASS_STORAGE_KEY);
-      return Boolean(stored);
+      const stored = getStoredAdminToken();
+      if (!stored) return 'unauthenticated';
+      if (isTokenLocallyExpired(stored)) {
+        clearStoredAdminToken();
+        return 'unauthenticated';
+      }
+      return 'checking';
     } catch {
-      return false;
+      return 'unauthenticated';
     }
   });
 
   const [adminEmail, setAdminEmail] = useState<string | undefined>(() => {
     try {
-      return sessionStorage.getItem('la3ib_admin_bypass_email') || localStorage.getItem('la3ib_admin_bypass_email') || undefined;
+      return sessionStorage.getItem(ADMIN_BYPASS_EMAIL_KEY) || localStorage.getItem(ADMIN_BYPASS_EMAIL_KEY) || undefined;
     } catch {
       return undefined;
     }
   });
 
-  // Verify stored token with backend on mount
+  const validationEpochRef = useRef(0);
+
+  // Validate stored admin session on initial load if in 'checking' state
   useEffect(() => {
-    if (!COMING_SOON_MODE || !adminBypassed) return;
-    const token = sessionStorage.getItem(ADMIN_BYPASS_STORAGE_KEY) || localStorage.getItem(ADMIN_BYPASS_STORAGE_KEY);
+    if (!COMING_SOON_MODE || adminAuthState !== 'checking') return;
+
+    const currentEpoch = ++validationEpochRef.current;
+    const token = getStoredAdminToken();
+
     if (!token) {
-      setAdminBypassed(false);
+      setAdminAuthState('unauthenticated');
       return;
     }
 
-    fetch('/api/admin/check-coming-soon-bypass', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      credentials: 'include',
-      body: JSON.stringify({ token })
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const text = await res.text();
-        if (!text || !text.trim() || text.trim().startsWith('<')) return null;
-        try {
-          return JSON.parse(text);
-        } catch {
-          return null;
-        }
-      })
-      .then((data: any) => {
-        if (!data) return; // Retain current session on non-JSON/proxy response
-        if (data.valid === false) {
+    validateAdminSessionWithServer(token)
+      .then((res) => {
+        // Prevent older asynchronous check from overwriting newer login
+        if (validationEpochRef.current !== currentEpoch) return;
+
+        if (res.status === 'valid') {
+          if (res.email) setAdminEmail(res.email);
+          setAdminAuthState('authenticated');
+        } else if (res.status === 'invalid') {
           clearStoredAdminToken();
-          setAdminBypassed(false);
-        } else if (data.email) {
-          setAdminEmail(data.email);
+          setAdminAuthState('unauthenticated');
+        } else {
+          // Indeterminate (network offline / proxy restart / HTML fallback):
+          // Maintain existing session without logging out
+          setAdminAuthState('authenticated');
         }
       })
       .catch(() => {
-        // Retain current session on transient network error
+        if (validationEpochRef.current !== currentEpoch) return;
+        setAdminAuthState('authenticated');
       });
-  }, [adminBypassed]);
+  }, [adminAuthState]);
 
-  const handleBypassSuccess = (token: string, email?: string) => {
+  const handleBypassSuccess = (token: string) => {
+    // Invalidate any older in-flight validation requests
+    validationEpochRef.current += 1;
     try {
-      setStoredAdminToken(token, email || 'khalidalami5555@gmail.com');
-      sessionStorage.setItem('la3ib_open_admin_modal', 'true');
-      if (email) {
-        setAdminEmail(email);
-      }
+      setStoredAdminToken(token);
     } catch {}
-    setAdminBypassed(true);
+    setAdminAuthState('authenticated');
   };
 
-  const handleReturnToComingSoon = () => {
+  const handleReturnToComingSoon = async () => {
+    validationEpochRef.current += 1;
     try {
-      clearStoredAdminToken();
-      sessionStorage.removeItem('la3ib_open_admin_modal');
+      await logoutAdminSession();
     } catch {}
-    setAdminBypassed(false);
+    setAdminAuthState('unauthenticated');
   };
 
-  // If Coming Soon mode is active and administrator has not bypassed, render the Landing Page
-  if (COMING_SOON_MODE && !adminBypassed) {
+  // 1. Loading / verifying existing session on initial visit
+  if (COMING_SOON_MODE && adminAuthState === 'checking') {
+    return <BrandedLoader mode="fullscreen" />;
+  }
+
+  // 2. Unauthenticated pre-launch visitors see the Coming Soon landing page
+  if (COMING_SOON_MODE && adminAuthState === 'unauthenticated') {
     return <ComingSoonPage onBypassSuccess={handleBypassSuccess} />;
   }
 
-  // Full application (accessed when COMING_SOON_MODE is false, or by an authorized administrator)
+  // 3. Full application rendered for authorized visitors or post-launch
   return (
     <AppProvider>
-      {COMING_SOON_MODE && adminBypassed && (
-        <AdminBypassBanner
-          onReturnToComingSoon={handleReturnToComingSoon}
-          adminEmail={adminEmail}
-        />
-      )}
       <AppContent />
     </AppProvider>
   );

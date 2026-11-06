@@ -26,13 +26,21 @@ export type PagesFunction<
 
 const DEFAULT_SECRET = 'la3ib_admin_bypass_secret_4709_kw_secure';
 
-const CORS_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-  'Access-Control-Max-Age': '86400'
-};
+function getCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  const origin = request.headers.get('Origin');
+  if (origin) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+  } else {
+    headers.set('Access-Control-Allow-Origin', '*');
+  }
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  headers.set('Access-Control-Max-Age', '86400');
+  return headers;
+}
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -72,42 +80,59 @@ async function verifyToken(secret: string, token: string): Promise<{ valid: bool
       enc.encode(secret),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['verify']
+      ['sign', 'verify']
     );
 
-    const expectedBuffer = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-    const expectedSig = base64UrlEncode(new Uint8Array(expectedBuffer));
-    if (signature !== expectedSig) return { valid: false };
+    const sigBytes = base64UrlDecode(signature);
+    const dataBytes = enc.encode(data);
+    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes as unknown as BufferSource, dataBytes as unknown as BufferSource);
+    if (!isValid) return { valid: false };
 
     const payloadBytes = base64UrlDecode(data);
     const payloadStr = new TextDecoder().decode(payloadBytes);
     const payload = JSON.parse(payloadStr);
 
-    if (Date.now() > payload.exp) return { valid: false };
-    return { valid: true, email: payload.email, uid: payload.uid };
+    if (typeof payload.exp !== 'number' || Date.now() > payload.exp) {
+      return { valid: false };
+    }
+    return { valid: true };
   } catch {
     return { valid: false };
   }
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+export const onRequestOptions: PagesFunction<Env> = async (context) => {
+  return new Response(null, { status: 204, headers: getCorsHeaders(context.request) });
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const secret = env.ADMIN_BYPASS_SECRET || DEFAULT_SECRET;
+  const headers = getCorsHeaders(request);
 
   try {
     let token: string | null = null;
 
-    // Check Authorization header
+    // 1. Check Authorization: Bearer <token>
     const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.slice(7).trim();
     }
 
-    // Check Cookie header
+    // 2. Check JSON body token
+    if (!token) {
+      try {
+        const contentType = (request.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+          const body: any = await request.json();
+          if (body?.token && typeof body.token === 'string') {
+            token = body.token.trim();
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Check Cookie header
     if (!token) {
       const cookieHeader = request.headers.get('cookie') || '';
       const match = cookieHeader.match(/la3ib_admin_session=([^;]+)/);
@@ -116,21 +141,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // Check JSON body
     if (!token) {
-      try {
-        const body: any = await request.json();
-        if (body?.token) token = body.token.trim();
-      } catch {}
-    }
-
-    if (!token) {
-      return new Response(JSON.stringify({ valid: false }), { status: 200, headers: CORS_HEADERS });
+      return new Response(JSON.stringify({ valid: false }), { status: 200, headers });
     }
 
     const result = await verifyToken(secret, token);
-    return new Response(JSON.stringify(result), { status: 200, headers: CORS_HEADERS });
+    return new Response(JSON.stringify(result), { status: 200, headers });
   } catch {
-    return new Response(JSON.stringify({ valid: false }), { status: 200, headers: CORS_HEADERS });
+    return new Response(JSON.stringify({ valid: false }), { status: 200, headers });
   }
 };

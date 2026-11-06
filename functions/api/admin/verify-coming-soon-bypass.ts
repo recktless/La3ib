@@ -27,13 +27,21 @@ export type PagesFunction<
 const DEFAULT_SECRET = 'la3ib_admin_bypass_secret_4709_kw_secure';
 const AUTHORIZED_ADMIN_EMAIL = 'khalidalami5555@gmail.com';
 
-const CORS_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-  'Access-Control-Max-Age': '86400'
-};
+function getCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  const origin = request.headers.get('Origin');
+  if (origin) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+  } else {
+    headers.set('Access-Control-Allow-Origin', '*');
+  }
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  headers.set('Access-Control-Max-Age', '86400');
+  return headers;
+}
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -60,10 +68,10 @@ async function createHmacSignature(secret: string, data: string): Promise<string
   return base64UrlEncode(new Uint8Array(signatureBuffer));
 }
 
-async function generateBypassToken(secret: string, uid: string, email: string): Promise<string> {
+async function generateBypassToken(secret: string): Promise<string> {
   const payload = {
-    uid,
-    email,
+    role: 'website_visitor',
+    access: true,
     exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
   };
   const enc = new TextEncoder();
@@ -82,16 +90,17 @@ function getClientIp(request: Request): string {
     'anonymous';
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
+export const onRequestOptions: PagesFunction<Env> = async (context) => {
   return new Response(null, {
     status: 204,
-    headers: CORS_HEADERS
+    headers: getCorsHeaders(context.request)
   });
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const secret = env.ADMIN_BYPASS_SECRET || DEFAULT_SECRET;
+  const headers = getCorsHeaders(request);
   const clientIp = getClientIp(request);
   const now = Date.now();
 
@@ -105,7 +114,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         error: `Too many failed attempts. Please wait ${remainingMinutes} minute(s) before trying again.`,
         errorAr: `محاولات خاطئة متكررة. يرجى الانتظار لمدة ${remainingMinutes} دقيقة قبل المحاولة مرة أخرى.`
       }),
-      { status: 429, headers: CORS_HEADERS }
+      { status: 429, headers }
     );
   }
 
@@ -119,7 +128,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         error: 'Invalid JSON request payload.',
         errorAr: 'حمولة الطلب غير صالحة.'
       }),
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers }
     );
   }
 
@@ -140,17 +149,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         error: 'Incorrect administrator bypass password.',
         errorAr: 'رمز الدخول الخاص بالإدارة غير صحيح.'
       }),
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers }
     );
   }
 
   // Clear rate limit record on success
   attemptMap.delete(clientIp);
 
-  const bypassToken = await generateBypassToken(secret, 'admin-session', AUTHORIZED_ADMIN_EMAIL);
+  const bypassToken = await generateBypassToken(secret);
 
-  const responseHeaders = new Headers(CORS_HEADERS);
-  responseHeaders.append(
+  headers.append(
     'Set-Cookie',
     `la3ib_admin_session=${bypassToken}; Path=/; Secure; SameSite=Lax; Max-Age=86400; HttpOnly`
   );
@@ -159,9 +167,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     JSON.stringify({
       success: true,
       bypassToken,
-      adminEmail: AUTHORIZED_ADMIN_EMAIL,
-      message: 'Administrator bypass access granted.'
+      message: 'Website access granted.'
     }),
-    { status: 200, headers: responseHeaders }
+    { status: 200, headers }
   );
 };

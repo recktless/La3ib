@@ -27,13 +27,21 @@ export type PagesFunction<
 const DEFAULT_SECRET = 'la3ib_admin_bypass_secret_4709_kw_secure';
 const AUTHORIZED_ADMIN_EMAIL = 'khalidalami5555@gmail.com';
 
-const CORS_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json; charset=utf-8',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-  'Access-Control-Max-Age': '86400'
-};
+function getCorsHeaders(request: Request): Headers {
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  const origin = request.headers.get('Origin');
+  if (origin) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+  } else {
+    headers.set('Access-Control-Allow-Origin', '*');
+  }
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  headers.set('Access-Control-Max-Age', '86400');
+  return headers;
+}
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -66,26 +74,41 @@ async function verifyToken(secret: string, token: string): Promise<boolean> {
       enc.encode(secret),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['verify']
+      ['sign', 'verify']
     );
-    const expectedBuffer = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-    const expectedSig = base64UrlEncode(new Uint8Array(expectedBuffer));
-    if (signature !== expectedSig) return false;
+    const sigBytes = base64UrlDecode(signature);
+    const dataBytes = enc.encode(data);
+    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes as unknown as BufferSource, dataBytes as unknown as BufferSource);
+    if (!isValid) return false;
 
     const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(data)));
-    return Date.now() <= payload.exp && payload.email?.toLowerCase().trim() === AUTHORIZED_ADMIN_EMAIL.toLowerCase();
+    return typeof payload.exp === 'number' && Date.now() <= payload.exp && payload.email?.toLowerCase().trim() === AUTHORIZED_ADMIN_EMAIL.toLowerCase();
   } catch {
     return false;
   }
 }
 
-export const onRequestOptions: PagesFunction<Env> = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+export const onRequestOptions: PagesFunction<Env> = async (context) => {
+  return new Response(null, { status: 204, headers: getCorsHeaders(context.request) });
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const secret = env.ADMIN_BYPASS_SECRET || DEFAULT_SECRET;
+  const headers = getCorsHeaders(request);
+  const actionPath = Array.isArray(params.path) ? params.path.join('/') : (params.path || '');
+
+  // Handle logout action
+  if (actionPath === 'logout') {
+    headers.append(
+      'Set-Cookie',
+      'la3ib_admin_session=; Path=/; Secure; SameSite=Lax; Max-Age=0; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    );
+    return new Response(
+      JSON.stringify({ success: true, message: 'Logged out successfully.' }),
+      { status: 200, headers }
+    );
+  }
 
   const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
   let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
@@ -99,7 +122,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (!token) {
     return new Response(
       JSON.stringify({ success: false, error: 'Authentication required. Missing Bearer token or session.' }),
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers }
     );
   }
 
@@ -107,11 +130,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (!isAuthorized) {
     return new Response(
       JSON.stringify({ success: false, error: 'Unauthorized: Invalid or expired administrator session.' }),
-      { status: 403, headers: CORS_HEADERS }
+      { status: 403, headers }
     );
   }
-
-  const actionPath = Array.isArray(params.path) ? params.path.join('/') : (params.path || '');
 
   let body: any = {};
   try {
@@ -125,6 +146,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       message: `Administrator action /api/admin/${actionPath} executed successfully.`,
       ...body
     }),
-    { status: 200, headers: CORS_HEADERS }
+    { status: 200, headers }
   );
 };

@@ -17,7 +17,15 @@ export const BrandedLoader: React.FC<BrandedLoaderProps> = ({
   message,
   className = ''
 }) => {
-  const { language, t } = useApp();
+  let language = 'en';
+  let t = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  try {
+    const appContext = useApp();
+    if (appContext) {
+      language = appContext.language;
+      t = appContext.t;
+    }
+  } catch {}
 
   if (mode === 'fullscreen') {
     return (

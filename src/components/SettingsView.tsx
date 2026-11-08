@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { 
   ArrowLeft, 
@@ -33,6 +34,7 @@ import {
 import { resolvePlayerAvatar, ThemePreference } from '../types';
 import { mapFirebaseAuthError } from '../lib/firebase';
 import { La3ibLogo } from './La3ibLogo';
+import { HelpSupportSection } from './support/HelpSupportSection';
 
 interface SettingsViewProps {
   onBackToProfile: () => void;
@@ -63,17 +65,17 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
   destructive = false
 }) => {
   const content = (
-    <div className={`flex items-center justify-between py-3 px-4 gap-3 transition-colors ${
+    <div className={`flex items-center justify-between py-3 px-3 sm:px-4 gap-2.5 sm:gap-3 transition-colors ${
       onClick ? 'hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 cursor-pointer' : ''
     }`}>
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
         {Icon && (
           <div className={`w-7 h-7 rounded-lg ${iconBg} ${iconColor} flex items-center justify-center shrink-0`}>
             <Icon className="w-3.5 h-3.5" />
           </div>
         )}
-        <div className="min-w-0">
-          <p className={`text-xs font-semibold leading-tight truncate ${
+        <div className="min-w-0 flex-1">
+          <p className={`text-xs font-semibold leading-snug break-words ${
             destructive 
               ? 'text-rose-600 dark:text-rose-400' 
               : 'text-slate-900 dark:text-white'
@@ -81,13 +83,13 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
             {label}
           </p>
           {description && (
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5 break-words">
               {description}
             </p>
           )}
         </div>
       </div>
-      {trailing && <div className="shrink-0 flex items-center">{trailing}</div>}
+      {trailing && <div className="shrink-0 flex items-center ms-2">{trailing}</div>}
     </div>
   );
 
@@ -104,7 +106,7 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
       ) : (
         content
       )}
-      {!isLast && <div className="border-b border-slate-100 dark:border-[#162560]/50 ms-14" />}
+      {!isLast && <div className="border-b border-slate-100 dark:border-[#162560]/50 ms-12 sm:ms-14" />}
     </div>
   );
 };
@@ -150,6 +152,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [deletePasswordInput, setDeletePasswordInput] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Lock scroll when delete modal is open
+  useEffect(() => {
+    if (!showDeleteConfirmModal || typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [showDeleteConfirmModal]);
 
   // Profile Privacy state
   const isPrivate = Boolean(currentUser.privacy?.isPrivateProfile);
@@ -247,7 +259,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 animate-fade-in pb-12">
+    <div className="w-full max-w-2xl mx-auto space-y-5 sm:space-y-6 animate-fade-in pb-24 md:pb-12 min-w-0">
       {/* Top Header: Understated & Native-App Aligned */}
       <div className="flex items-center justify-between py-2 border-b border-slate-200/80 dark:border-[#1F3590]/50">
         <button
@@ -283,35 +295,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {/* Athlete Profile Summary Row */}
           <div 
             onClick={onOpenEditProfile}
-            className="flex items-center justify-between p-3.5 hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 transition-colors cursor-pointer"
+            className="flex items-center justify-between p-3 sm:p-3.5 hover:bg-slate-50/70 dark:hover:bg-[#111F54]/50 transition-colors cursor-pointer gap-2.5 min-w-0"
           >
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
               <img 
                 src={resolvePlayerAvatar(currentUser)} 
                 alt={currentUser.name} 
-                className="w-11 h-11 rounded-xl object-cover border border-slate-200 dark:border-[#223577] shrink-0"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover border border-slate-200 dark:border-[#223577] shrink-0"
               />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                  <span className="font-bold text-slate-900 dark:text-white text-xs truncate max-w-[130px] sm:max-w-none">
                     {language === 'ar' ? (currentUser.nameAr || currentUser.name) : currentUser.name}
                   </span>
-                  <span className="text-[10px] font-mono text-[#3A60AA] dark:text-[#B9C9E0]">@{currentUser.username}</span>
+                  <span className="text-[10px] font-mono text-[#3A60AA] dark:text-[#B9C9E0] shrink-0">@{currentUser.username}</span>
                   {authStatus === 'authenticated' && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-[#142366] text-[#3A60AA] dark:text-[#B9C9E0] text-[10px] font-semibold border border-blue-200/50 dark:border-[#1F3590]/50">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-[#142366] text-[#3A60AA] dark:text-[#B9C9E0] text-[10px] font-semibold border border-blue-200/50 dark:border-[#1F3590]/50 shrink-0">
                       <Check className="w-2.5 h-2.5" />
                       <span>{t('Verified', 'موثق')}</span>
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 break-all mt-0.5">
                   {currentUser.email || firebaseUser?.email || (authStatus === 'demo' ? 'demo@la3ib.kw' : t('Guest Athlete', 'لاعب زائر'))}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 text-slate-400 shrink-0">
-              <span className="text-[11px] font-medium text-[#3A60AA] dark:text-[#B9C9E0]">
+            <div className="flex items-center gap-1 text-slate-400 shrink-0 ms-1">
+              <span className="text-[11px] font-medium text-[#3A60AA] dark:text-[#B9C9E0] hidden xs:inline sm:inline">
                 {t('Edit Profile', 'تعديل الملف')}
               </span>
               <ChevronRight className="w-4 h-4 rtl:rotate-180" />
@@ -402,12 +414,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
           {/* Appearance Row */}
-          <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-3">
+          <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
                 <Sun className="w-3.5 h-3.5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
                   {t('Appearance', 'المظهر')}
                 </p>
@@ -422,7 +434,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             {/* Apple-style segmented pill selector */}
-            <div className="inline-flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 self-start sm:self-center">
+            <div className="w-full sm:w-auto grid grid-cols-3 sm:flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 shrink-0">
               {[
                 { key: 'light', labelEn: 'Light', labelAr: 'فاتح', Icon: Sun },
                 { key: 'dark', labelEn: 'Dark', labelAr: 'داكن', Icon: Moon },
@@ -435,14 +447,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     key={opt.key}
                     type="button"
                     onClick={() => setThemePreference(opt.key as ThemePreference)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-2 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       isActive 
                         ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs' 
                         : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
-                    <OptIcon className="w-3 h-3" />
-                    <span>{language === 'ar' ? opt.labelAr : opt.labelEn}</span>
+                    <OptIcon className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{language === 'ar' ? opt.labelAr : opt.labelEn}</span>
                   </button>
                 );
               })}
@@ -450,12 +462,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           {/* Language Row */}
-          <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-3">
+          <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
                 <Globe className="w-3.5 h-3.5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
                   {t('Language', 'اللغة')}
                 </p>
@@ -466,11 +478,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             {/* Language toggle buttons */}
-            <div className="inline-flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 self-start sm:self-center">
+            <div className="w-full sm:w-auto grid grid-cols-2 sm:flex p-0.5 rounded-xl bg-slate-100 dark:bg-[#142358] border border-slate-200/60 dark:border-[#1F3590]/60 shrink-0">
               <button
                 type="button"
                 onClick={() => setLanguage('en')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg text-xs font-semibold text-center transition-all cursor-pointer ${
                   language === 'en'
                     ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -481,7 +493,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setLanguage('ar')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold font-cairo transition-all cursor-pointer ${
+                className={`px-3 py-1.5 sm:py-1 rounded-lg text-xs font-bold font-cairo text-center transition-all cursor-pointer ${
                   language === 'ar'
                     ? 'bg-white dark:bg-[#1E3278] text-[#3A60AA] dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -509,16 +521,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
           {/* Profile Privacy Toggle Row */}
-          <div className="p-3.5 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between gap-2.5 sm:gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
               <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
                 <Lock className="w-3.5 h-3.5" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
                   {t('Profile Privacy', 'خصوصية الحساب')}
                 </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5 break-words">
                   {isPrivate 
                     ? t('Private Profile active — switch to Public Profile anytime', 'الملف خاص — يمكنك التحويل إلى ملف عام') 
                     : t('Public Profile active — toggle switch for Private Profile mode', 'الملف عام — يمكنك تفعيل خيار ملف خاص')}
@@ -533,7 +545,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               aria-checked={isPrivate}
               disabled={isUpdatingPrivacy}
               onClick={() => handleSetProfilePrivacy(!isPrivate)}
-              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 disabled:opacity-50 ${
+              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 disabled:opacity-50 ms-2 ${
                 isPrivate ? 'bg-[#3A60AA]' : 'bg-slate-200 dark:bg-[#162560]'
               }`}
             >
@@ -644,16 +656,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </h2>
 
         <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
-          <div className="p-3.5 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between gap-2.5 sm:gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
               <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-[#162766] text-[#3A60AA] dark:text-[#B9C9E0] flex items-center justify-center shrink-0">
                 <Bell className="w-3.5 h-3.5" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-slate-900 dark:text-white leading-tight">
                   {t('In-App Activity Notifications', 'إشعارات الأنشطة والتنبيهات')}
                 </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5 truncate">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5 break-words">
                   {t('Game invitations, player joins, and booking confirmations', 'دعوات المباريات وتأكيدات الانضمام')}
                 </p>
               </div>
@@ -664,7 +676,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               role="switch"
               aria-checked={inAppNotifsEnabled}
               onClick={handleToggleInAppNotifs}
-              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+              className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ms-2 ${
                 inAppNotifsEnabled ? 'bg-[#3A60AA]' : 'bg-slate-200 dark:bg-[#162560]'
               }`}
             >
@@ -681,11 +693,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* GROUP 5: HELP & ABOUT                                                     */}
+      {/* GROUP 5: HELP & SUPPORT                                                   */}
+      {/* ========================================================================= */}
+      <HelpSupportSection onOpenCommunityGuidelines={() => setActiveTab('guidelines')} />
+
+      {/* ========================================================================= */}
+      {/* GROUP 6: ABOUT & SYSTEM                                                   */}
       {/* ========================================================================= */}
       <div className="space-y-1.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-3">
-          {t('Help & About', 'المساعدة والمعلومات')}
+          {t('About La3ib', 'حول منصة لعّيب')}
         </h2>
 
         <div className="bg-white dark:bg-[#0B1536] border border-slate-200/80 dark:border-[#1F3590]/50 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-[#162560]/50 shadow-xs">
@@ -743,11 +760,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               trailing={<ChevronRight className="w-4 h-4 text-slate-400 rtl:rotate-180" />}
             />
           ) : (
-            <div className="p-3.5 flex items-center justify-between text-xs gap-2">
-              <span className="font-medium text-slate-700 dark:text-slate-300">
+            <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2.5 min-w-0">
+              <span className="font-medium text-slate-700 dark:text-slate-300 min-w-0 break-words">
                 {t('Are you sure you want to sign out?', 'هل أنت متأكد من تسجيل الخروج؟')}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowLogoutConfirm(false)}
@@ -789,11 +806,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Delete Account Confirmation Modal */}
-      {showDeleteConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 animate-fade-in">
+      {showDeleteConfirmModal && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-[2px] overflow-y-auto animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isDeletingAccount) {
+              setShowDeleteConfirmModal(false);
+            }
+          }}
+        >
           <div 
-            className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-rose-200 dark:border-rose-900/60 rounded-2xl p-6 shadow-xl animate-scale-in"
+            className="relative w-full max-w-md bg-white dark:bg-[#131C31] border border-rose-200 dark:border-rose-900/60 rounded-3xl p-5 sm:p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto min-w-0"
             dir={language === 'ar' ? 'rtl' : 'ltr'}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
@@ -886,7 +913,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

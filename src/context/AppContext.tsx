@@ -34,8 +34,10 @@ import {
   ThemePreference,
   EffectiveTheme,
   AdminGameEditInput,
-  AdminProfileModerationInput
+  AdminProfileModerationInput,
+  isTicketUnreadByAdmin
 } from '../types';
+import { subscribeAllTickets } from '../lib/supportService';
 import { 
   CURRENT_USER, 
   INITIAL_GAMES, 
@@ -279,6 +281,10 @@ interface AppContextType {
 
   adminModalOpen: boolean;
   setAdminModalOpen: (open: boolean) => void;
+
+  supportDashboardOpen: boolean;
+  setSupportDashboardOpen: (open: boolean) => void;
+  unreadSupportTicketsCount: number;
 
   // Actions
   bookCourtViaLi3ib: (court: Court, slot: { id: string; date: string; startTime: string; endTime: string; priceKWD: number }) => CourtBooking;
@@ -1588,6 +1594,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch {}
   }, []);
+
+  const [supportDashboardOpen, setSupportDashboardOpen] = useState(false);
+  const [unreadSupportTicketsCount, setUnreadSupportTicketsCount] = useState(0);
+
+  // Real-time unread support tickets count for authorized administrators
+  useEffect(() => {
+    const userEmail = (firebaseUser?.email || currentUser.email || '').toLowerCase().trim();
+    const isStaff = userEmail === 'khalidalami5555@gmail.com' || Boolean(currentUser.isAdmin && !currentUser.isDemoUser);
+
+    if (!isStaff || authStatus !== 'authenticated') {
+      setUnreadSupportTicketsCount(0);
+      return;
+    }
+
+    const unsubscribe = subscribeAllTickets(
+      (allTickets) => {
+        const count = allTickets.filter(isTicketUnreadByAdmin).length;
+        setUnreadSupportTicketsCount(count);
+      },
+      () => {
+        // Safe silent fallback
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [authStatus, currentUser.isAdmin, currentUser.isDemoUser, currentUser.email, firebaseUser?.email]);
 
   // Pending game invitation state (for direct URLs /game/:gameId or ?game=:gameId)
   const [pendingInviteGameId, setPendingInviteGameId] = useState<string | null>(() => {
@@ -4124,6 +4158,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSafetyModalOpen,
         adminModalOpen,
         setAdminModalOpen,
+        supportDashboardOpen,
+        setSupportDashboardOpen,
+        unreadSupportTicketsCount,
         bookCourtViaLi3ib,
         postBookingAsGame,
         createGame,

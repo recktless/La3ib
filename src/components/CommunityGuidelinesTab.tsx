@@ -17,9 +17,11 @@ import {
   CheckCircle2,
   Loader2,
   X,
-  ExternalLink
+  ExternalLink,
+  Mail
 } from 'lucide-react';
-import { ReportReason } from '../types';
+import { ReportReason, SupportTicketCategory, SupportTicketOrigin } from '../types';
+import { CreateTicketModal } from './support/CreateTicketModal';
 
 export const CommunityGuidelinesTab: React.FC = () => {
   const { 
@@ -50,6 +52,11 @@ export const CommunityGuidelinesTab: React.FC = () => {
 
   // Blocked users management dialog state
   const [showBlockedDialog, setShowBlockedDialog] = useState(false);
+
+  // Support Ticket Modal state for Community Guidelines
+  const [showSupportTicketModal, setShowSupportTicketModal] = useState(false);
+  const [ticketInitialCategory, setTicketInitialCategory] = useState<SupportTicketCategory>('community_guidelines');
+  const [ticketInitialOrigin, setTicketInitialOrigin] = useState<SupportTicketOrigin>('community_guidelines');
 
   const handleOpenReport = (type: 'user' | 'game' = 'user') => {
     setReportTargetType(type);
@@ -199,15 +206,19 @@ export const CommunityGuidelinesTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Action Button: File Report */}
+        {/* Action Button: Report a Violation */}
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
           <button
             type="button"
-            onClick={() => handleOpenReport('user')}
+            onClick={() => {
+              setTicketInitialCategory('community_guidelines');
+              setTicketInitialOrigin('community_guidelines');
+              setShowSupportTicketModal(true);
+            }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors cursor-pointer shadow-xs"
           >
             <Flag className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-            <span>{t('File Safety Report', 'تقديم بلاغ أمان')}</span>
+            <span>{t('Report a Violation', 'الإبلاغ عن مخالفة')}</span>
           </button>
         </div>
       </div>
@@ -251,11 +262,28 @@ export const CommunityGuidelinesTab: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-slate-100 dark:border-slate-800/80">
                       <button
                         type="button"
-                        onClick={() => handleOpenReport('user')}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EEF3F9] hover:bg-[#DCE5F2] dark:bg-[#142578] dark:hover:bg-[#1B3088] text-[#06135B] dark:text-white text-xs font-semibold transition-colors cursor-pointer border border-[#B9C9E0]/60 dark:border-[#1F3590]"
+                        onClick={() => {
+                          setTicketInitialCategory('community_guidelines');
+                          setTicketInitialOrigin('community_guidelines');
+                          setShowSupportTicketModal(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors cursor-pointer border border-rose-200 dark:border-rose-900/60"
                       >
                         <Flag className="w-3 h-3 text-rose-500" />
-                        <span>{t('Report User / Match', 'إبلاغ عن مستخدم / مباراة')}</span>
+                        <span>{t('Report a Violation', 'الإبلاغ عن مخالفة')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTicketInitialCategory('general_question');
+                          setTicketInitialOrigin('community_guidelines');
+                          setShowSupportTicketModal(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EEF3F9] hover:bg-[#DCE5F2] dark:bg-[#142578] dark:hover:bg-[#1B3088] text-[#06135B] dark:text-white text-xs font-semibold transition-colors cursor-pointer border border-[#B9C9E0]/60 dark:border-[#1F3590]"
+                      >
+                        <Mail className="w-3 h-3 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                        <span>{t('Contact Support', 'التواصل مع الدعم')}</span>
                       </button>
 
                       <button
@@ -283,17 +311,21 @@ export const CommunityGuidelinesTab: React.FC = () => {
           </h4>
           <p className="text-xs text-slate-600 dark:text-[#B9C9E0]/90 mt-0.5">
             {t(
-              'Our community safety team in Kuwait investigates all reports within 24 hours.',
-              'فريق الأمان المجتمعي في الكويت يحقق في جميع البلاغات خلال 24 ساعة.'
+              'Our support team will respond as soon as possible.',
+              'سيقوم فريق الدعم بالرد في أقرب وقت ممكن.'
             )}
           </p>
         </div>
         <button
           type="button"
-          onClick={() => handleOpenReport('user')}
+          onClick={() => {
+            setTicketInitialCategory('general_question');
+            setTicketInitialOrigin('community_guidelines');
+            setShowSupportTicketModal(true);
+          }}
           className="px-4 py-2 rounded-xl bg-[#3A60AA] hover:bg-[#2E4D8A] text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-xs"
         >
-          {t('Submit Safety Inquiry', 'إرسال استفسار أمان')}
+          {t('Contact Support', 'التواصل مع الدعم')}
         </button>
       </div>
 
@@ -572,6 +604,14 @@ export const CommunityGuidelinesTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Support Ticket Modal for Community Guidelines & Reporting */}
+      <CreateTicketModal
+        isOpen={showSupportTicketModal}
+        onClose={() => setShowSupportTicketModal(false)}
+        initialCategory={ticketInitialCategory}
+        initialOrigin={ticketInitialOrigin}
+      />
     </div>
   );
 };

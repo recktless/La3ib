@@ -27,6 +27,7 @@ import {
   AlertTriangle, 
   AlertCircle, 
   Settings,
+  HelpCircle,
   UserPlus,
   Image as ImageIcon
 } from 'lucide-react';
@@ -582,6 +583,17 @@ export const ProfileTab: React.FC = () => {
               className="hidden" 
             />
 
+            {/* Help & Support button */}
+            <button
+              type="button"
+              onClick={() => setProfileSubView('settings')}
+              className="px-3 py-1.5 rounded-xl bg-slate-950/75 hover:bg-slate-950 border border-white/25 text-xs font-semibold text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title={t('Help & Support', 'المساعدة والدعم')}
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-[#05BCD1]" />
+              <span className="hidden sm:inline">{t('Help & Support', 'المساعدة والدعم')}</span>
+            </button>
+
             {/* Settings button */}
             <button
               type="button"
@@ -589,7 +601,7 @@ export const ProfileTab: React.FC = () => {
               className="px-3 py-1.5 rounded-xl bg-slate-950/75 hover:bg-slate-950 border border-white/25 text-xs font-semibold text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
               title={t('Settings', 'الإعدادات')}
             >
-              <Settings className="w-3.5 h-3.5 text-[#05BCD1]" />
+              <Settings className="w-3.5 h-3.5 text-slate-200" />
               <span className="hidden sm:inline">{t('Settings', 'الإعدادات')}</span>
             </button>
 

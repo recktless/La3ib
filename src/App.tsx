@@ -25,6 +25,7 @@ import { CreateGameModal } from './components/CreateGameModal';
 import { JoinPaymentModal } from './components/JoinPaymentModal';
 import { GameDetailModal } from './components/GameDetailModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
+import { SupportDashboardModal } from './components/support/SupportDashboardModal';
 import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { NotificationsModal } from './components/NotificationsModal';
@@ -58,6 +59,8 @@ export const AppContent: React.FC = () => {
     logout,
     games,
     setSelectedGameForDetail,
+    supportDashboardOpen,
+    setSupportDashboardOpen,
     t 
   } = useApp();
 
@@ -306,6 +309,7 @@ export const AppContent: React.FC = () => {
       <JoinPaymentModal />
       <GameDetailModal />
       <AdminPanelModal />
+      <SupportDashboardModal isOpen={supportDashboardOpen} onClose={() => setSupportDashboardOpen(false)} />
       <AuthModal />
       <ResetPasswordModal />
       <NotificationsModal />

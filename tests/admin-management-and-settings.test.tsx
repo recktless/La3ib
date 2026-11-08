@@ -223,8 +223,8 @@ describe('Admin Management & Settings Improvements Test Suite', () => {
       expect(html).toContain('Notifications');
       expect(html).toContain('In-App Activity Notifications');
 
-      // Group 5: Help & About
-      expect(html).toContain('Help &amp; About');
+      // Group 5: Help & Support
+      expect(html).toContain('Help &amp; Support');
       expect(html).toContain('Community &amp; Safety Guidelines');
       expect(html).toContain('Replay Tutorial');
       expect(html).toContain('La3ib / لاعب');

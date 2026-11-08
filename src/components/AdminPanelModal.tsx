@@ -16,6 +16,7 @@ import {
 } from '../types';
 import { 
   ShieldCheck, 
+  Shield,
   X, 
   Users, 
   AlertTriangle, 
@@ -71,6 +72,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
   const { 
     adminModalOpen, 
     setAdminModalOpen, 
+    setSupportDashboardOpen,
+    unreadSupportTicketsCount,
     currentUser,
     games, 
     players, 
@@ -941,6 +944,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
             <span className="text-[10px] bg-slate-200 dark:bg-[#1B253D] text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded-full font-mono">
               {moderationLogs.length}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSupportDashboardOpen(true)}
+            className="py-3 px-4 text-xs font-bold border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all flex items-center gap-2 shrink-0 cursor-pointer"
+          >
+            <Shield className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0]" />
+            <span>{t('Support Dashboard', 'لوحة تحكم الدعم')}</span>
+            {unreadSupportTicketsCount > 0 && (
+              <span className="text-[10px] bg-[#3A60AA] text-white px-1.5 py-0.5 rounded-full font-bold">
+                {unreadSupportTicketsCount > 99 ? '99+' : unreadSupportTicketsCount}
+              </span>
+            )}
           </button>
         </div>
 

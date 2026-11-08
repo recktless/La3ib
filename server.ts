@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { moderateText } from './src/lib/contentModeration.ts';
+import { sendSupportEmail } from './src/lib/supportMail.ts';
 
 dotenv.config();
 
@@ -752,6 +753,125 @@ app.post('/api/admin/logout', (req, res) => {
     `la3ib_admin_session=; Path=/; SameSite=Lax; Max-Age=0; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT${isSecure ? '; Secure' : ''}`
   );
   return res.status(200).json({ success: true, message: 'Administrator session cleared successfully.' });
+});
+
+// Support notification duplicate tracking & rate limiting
+const supportNotificationCache = new Map<string, number>();
+
+// Support Ticket System: Zoho Mail Transactional Notification API
+app.post('/api/support/notify', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const authHeader = req.headers.authorization;
+    const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : null;
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Missing Bearer token.'
+      });
+    }
+
+    const tokenCheck = await verifyFirebaseToken(token);
+    if (!tokenCheck.valid || !tokenCheck.uid) {
+      return res.status(401).json({
+        success: false,
+        error: tokenCheck.error || 'Invalid authentication token.'
+      });
+    }
+
+    const { event, ticket, messageContent, senderName, isInternalNote } = req.body || {};
+
+    if (!event || !ticket || !ticket.id || !ticket.ticketNumber) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required support ticket notification payload.'
+      });
+    }
+
+    if (isInternalNote) {
+      return res.status(200).json({
+        success: true,
+        emailSent: false,
+        message: 'Internal note skipped from email notification.'
+      });
+    }
+
+    const isStaff = (tokenCheck.email || '').toLowerCase().trim() === 'khalidalami5555@gmail.com';
+
+    // Verify permissions based on event
+    if (event === 'ticket_created' || event === 'user_reply') {
+      if (tokenCheck.uid !== ticket.userId && !isStaff) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. You can only dispatch notifications for your own support tickets.'
+        });
+      }
+    } else if (event === 'support_reply' || event === 'ticket_resolved') {
+      if (!isStaff) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. Only authorized support staff can dispatch staff notification emails.'
+        });
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Unsupported support notification event.'
+      });
+    }
+
+    // Deduplication (15s bucket per ticket+event)
+    const timeBucket = Math.floor(Date.now() / 15000);
+    const cacheKey = `${event}_${ticket.id}_${timeBucket}`;
+    if (supportNotificationCache.has(cacheKey)) {
+      return res.status(200).json({
+        success: true,
+        emailSent: false,
+        message: 'Duplicate notification suppressed (persistent dedup).'
+      });
+    }
+    supportNotificationCache.set(cacheKey, Date.now());
+
+    if (supportNotificationCache.size > 2000) {
+      const now = Date.now();
+      for (const [k, time] of supportNotificationCache.entries()) {
+        if (now - time > 60000) supportNotificationCache.delete(k);
+      }
+    }
+
+    // Backend configuration flag: disabled by default for launch (in-app only)
+    const isEmailEnabled = process.env.SUPPORT_EMAIL_ENABLED === 'true';
+    if (!isEmailEnabled) {
+      return res.status(200).json({
+        success: true,
+        emailSent: false,
+        message: 'Support email notifications are disabled for launch (SUPPORT_EMAIL_ENABLED=false).'
+      });
+    }
+
+    const safeTicket = {
+      ...ticket,
+      status: ticket.status === 'in_progress' ? 'open' : (ticket.status === 'closed' ? 'resolved' : ticket.status)
+    };
+
+    const result = await sendSupportEmail({
+      event,
+      ticket: safeTicket,
+      messageContent,
+      senderName,
+      isInternalNote: false
+    });
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    console.error('[Support Notification API] Unexpected error sending email:', err);
+    return res.status(200).json({
+      success: true,
+      emailSent: false,
+      message: 'Email service error recorded safely: ' + (err?.message || 'Unknown error')
+    });
+  }
 });
 
 // Dynamic Open Graph and direct invite endpoint for /game/:gameId

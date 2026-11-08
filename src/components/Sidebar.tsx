@@ -16,6 +16,7 @@ import {
   Monitor, 
   PanelLeftClose,
   ShieldCheck,
+  Shield,
   Settings,
   LayoutDashboard
 } from 'lucide-react';
@@ -30,6 +31,8 @@ export const Sidebar: React.FC = () => {
     setCreateGamePrefill, 
     setSafetyModalOpen,
     setAdminModalOpen,
+    setSupportDashboardOpen,
+    unreadSupportTicketsCount,
     openSettings,
     t, 
     games, 
@@ -231,17 +234,38 @@ export const Sidebar: React.FC = () => {
           </button>
 
           {currentUser.isAdmin && !currentUser.isDemoUser && (
-            <button
-              type="button"
-              onClick={() => {
-                setAdminModalOpen(true);
-                if (setIsSidebarOpen) setIsSidebarOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-all duration-200 cursor-pointer interactive-tap"
-            >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span>{t('Admin Dashboard', 'لوحة التحكم للمشرف')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminModalOpen(true);
+                  if (setIsSidebarOpen) setIsSidebarOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-all duration-200 cursor-pointer interactive-tap"
+              >
+                <LayoutDashboard className="w-4 h-4 shrink-0" />
+                <span>{t('Admin Dashboard', 'لوحة التحكم للمشرف')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSupportDashboardOpen(true);
+                  if (setIsSidebarOpen) setIsSidebarOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-all duration-200 cursor-pointer interactive-tap"
+              >
+                <div className="flex items-center gap-3">
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>{t('Support Dashboard', 'لوحة تحكم الدعم')}</span>
+                </div>
+                {unreadSupportTicketsCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full text-[10px] font-bold bg-[#3A60AA] text-white">
+                    {unreadSupportTicketsCount > 99 ? '99+' : unreadSupportTicketsCount}
+                  </span>
+                )}
+              </button>
+            </>
           )}
         </div>
       </div>

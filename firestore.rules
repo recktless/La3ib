@@ -870,6 +870,93 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Support Tickets Collection (/supportTickets/{ticketId})
+    match /supportTickets/{ticketId} {
+      // Read: Staff/Admin can read all tickets; ticket creators can only read their own tickets
+      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
+      // Create: Authenticated users can create tickets with their own user ID
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.ticketNumber is string
+        && request.resource.data.subject is string && request.resource.data.subject.size() > 0 && request.resource.data.subject.size() <= 250
+        && request.resource.data.description is string && request.resource.data.description.size() > 0 && request.resource.data.description.size() <= 4000
+        && request.resource.data.category in ['general_question', 'technical_issue', 'account_profile', 'games_players', 'bookings_payments', 'community_guidelines', 'other']
+        && (!('priority' in request.resource.data) || request.resource.data.priority in ['low', 'normal', 'high', 'urgent'])
+        && request.resource.data.status in ['open', 'waiting_for_user', 'resolved', 'in_progress', 'closed']
+        && request.resource.data.origin in ['help_and_support', 'community_guidelines']
+        && request.resource.data.createdAt is string;
+
+      // Update: Admin can manage all fields; User can update reply metadata, reopen (status -> open), or resolve
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.ticketNumber == resource.data.ticketNumber &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'lastReplyAt', 'lastReplyBy', 'unreadBySupport', 'unreadByUser']) &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['unreadBySupport']) || request.resource.data.unreadBySupport == true) &&
+          request.resource.data.status in ['open', 'waiting_for_user', 'resolved', 'in_progress', 'closed']
+        )
+      );
+
+      // Delete: Only administrators
+      allow delete: if isAdmin();
+
+      // Conversation Messages Subcollection (/supportTickets/{ticketId}/messages/{messageId})
+      match /messages/{messageId} {
+        function getParentTicket() {
+          return get(/databases/$(database)/documents/supportTickets/$(ticketId)).data;
+        }
+
+        // Read: Admin can read all messages (including internal notes).
+        // Ticket creator can ONLY read messages where isInternalNote is false or omitted.
+        allow read: if isSignedIn() && (
+          isAdmin() ||
+          (
+            getParentTicket().userId == request.auth.uid &&
+            (!('isInternalNote' in resource.data) || resource.data.isInternalNote != true)
+          )
+        );
+
+        // Create:
+        // Admin: can post support reply or internal staff note
+        // User: can post user reply only (cannot set isInternalNote = true)
+        allow create: if isSignedIn() && (
+          (
+            isAdmin() &&
+            request.resource.data.senderRole == 'support' &&
+            request.resource.data.content is string &&
+            request.resource.data.content.size() > 0 &&
+            request.resource.data.content.size() <= 4000
+          ) ||
+          (
+            getParentTicket().userId == request.auth.uid &&
+            request.resource.data.senderId == request.auth.uid &&
+            request.resource.data.senderRole == 'user' &&
+            (!('isInternalNote' in request.resource.data) || request.resource.data.isInternalNote == false) &&
+            request.resource.data.content is string &&
+            request.resource.data.content.size() > 0 &&
+            request.resource.data.content.size() <= 4000
+          )
+        );
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Support Notifications Deduplication Collection (/supportNotifications/{dedupId})
+    match /supportNotifications/{dedupId} {
+      allow read, create: if isSignedIn()
+        && isValidId(dedupId)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.ticketId is string
+        && request.resource.data.event is string
+        && request.resource.data.createdAt is string;
+      allow update, delete: if isAdmin();
+    }
+
     // Collection Group Queries for Outgoing Friend Requests
     match /{path=**}/friendRequests/{requesterUserId} {
       allow read: if isSignedIn() && (

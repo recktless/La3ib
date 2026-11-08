@@ -211,8 +211,9 @@ describe('La3ib Task 5: Functional Profile Settings & Privacy Suite', () => {
       // No dead placeholder links
       expect(html).not.toContain('Terms of Service');
       expect(html).not.toContain('Privacy Policy');
-      expect(html).not.toContain('Help &amp; Support');
-      expect(html).not.toContain('Help & Support');
+
+      // Functional Help & Support ticket system is now integrated
+      expect(html).toContain('Help &amp; Support');
     });
   });
 

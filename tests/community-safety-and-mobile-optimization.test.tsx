@@ -90,10 +90,10 @@ describe('Community Safety, Universal Mobile Optimization & Logo Consistency', (
       // Section 9: Consequences of Violations
       expect(html).toContain('9. Consequences of Violations');
 
-      // Working actions presence
-      expect(html).toContain('Report User / Match');
+      // Working actions presence: Report a Violation and Contact Support
+      expect(html).toContain('Report a Violation');
       expect(html).toContain('Manage Blocked Athletes');
-      expect(html).toContain('Submit Safety Inquiry');
+      expect(html).toContain('Contact Support');
     });
 
     it('renders all 9 sections in Arabic when language is ar', () => {

@@ -347,6 +347,73 @@
         "paymentLinkUrl": { "type": "string", "maxLength": 500 }
       },
       "required": ["id", "gameId", "requesterId", "hostId", "status", "createdAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Bilingual customer support and community guidelines report ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ticketNumber": { "type": "string", "maxLength": 50 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userEmail": { "type": "string", "maxLength": 120 },
+        "category": {
+          "type": "string",
+          "enum": ["general_question", "technical_issue", "account_profile", "games_players", "bookings_payments", "community_guidelines", "other"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "normal", "high", "urgent"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "waiting_for_user", "resolved", "in_progress", "closed"]
+        },
+        "subject": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "origin": { "type": "string", "enum": ["help_and_support", "community_guidelines"] },
+        "relatedPlayerId": { "type": "string", "maxLength": 128 },
+        "relatedGameId": { "type": "string", "maxLength": 128 },
+        "attachments": { "type": "array" },
+        "assignedTo": { "type": "string", "maxLength": 128 },
+        "language": { "type": "string", "enum": ["en", "ar"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "lastReplyAt": { "type": "string" },
+        "lastReplyBy": { "type": "string", "enum": ["user", "support"] }
+      },
+      "required": ["id", "ticketNumber", "userId", "userEmail", "category", "status", "subject", "description", "origin", "createdAt"]
+    },
+    "TicketMessage": {
+      "title": "TicketMessage",
+      "description": "Thread message or staff internal note for a support ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ticketId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderRole": { "type": "string", "enum": ["user", "support"] },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "content": { "type": "string", "maxLength": 3000 },
+        "attachments": { "type": "array" },
+        "isInternalNote": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "ticketId", "senderId", "senderRole", "senderName", "content", "createdAt"]
+    },
+    "SupportNotificationDedup": {
+      "title": "SupportNotificationDedup",
+      "description": "Persistent cross-instance notification deduplication record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ticketId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "event": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "ticketId", "userId", "event", "createdAt"]
     }
   },
   "firestore": {
@@ -433,6 +500,18 @@
     "/payments/{paymentId}": {
       "schema": { "$ref": "#/entities/Payment" },
       "description": "Transaction payment log"
+    },
+    "/supportTickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "Customer support and safety violation tickets"
+    },
+    "/supportTickets/{ticketId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/TicketMessage" },
+      "description": "Support ticket conversation thread messages and internal staff notes"
+    },
+    "/supportNotifications/{dedupId}": {
+      "schema": { "$ref": "#/entities/SupportNotificationDedup" },
+      "description": "Persistent cross-instance notification deduplication collection"
     }
   }
 }

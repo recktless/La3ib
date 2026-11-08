@@ -5,6 +5,7 @@ import {
   MapPin, 
   Globe, 
   ShieldCheck, 
+  Shield,
   Search, 
   LayoutDashboard,
   LogIn,
@@ -36,6 +37,8 @@ export const Header: React.FC = () => {
     setNotificationsModalOpen,
     setSafetyModalOpen,
     setAdminModalOpen,
+    setSupportDashboardOpen,
+    unreadSupportTicketsCount,
     activeTab,
     setActiveTab,
     setProfileSubView,
@@ -402,18 +405,40 @@ export const Header: React.FC = () => {
                       <span>{t('Community & Safety Guidelines', 'إرشادات المجتمع والسلامة')}</span>
                     </button>
                     {currentUser.isAdmin && !currentUser.isDemoUser && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAdminModalOpen(true);
-                          setOverflowOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left rtl:text-right font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer rounded-xl"
-                        role="menuitem"
-                      >
-                        <LayoutDashboard className="w-4 h-4 shrink-0" />
-                        <span>{t('Admin Dashboard', 'لوحة التحكم للمشرف')}</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminModalOpen(true);
+                            setOverflowOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-left rtl:text-right font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer rounded-xl"
+                          role="menuitem"
+                        >
+                          <LayoutDashboard className="w-4 h-4 shrink-0" />
+                          <span>{t('Admin Dashboard', 'لوحة التحكم للمشرف')}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSupportDashboardOpen(true);
+                            setOverflowOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2 text-left rtl:text-right font-semibold text-[#3A60AA] dark:text-[#B9C9E0] hover:bg-[#EEF3F9] dark:hover:bg-[#0D1C68] transition-colors cursor-pointer rounded-xl"
+                          role="menuitem"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Shield className="w-4 h-4 shrink-0" />
+                            <span>{t('Support Dashboard', 'لوحة تحكم الدعم')}</span>
+                          </div>
+                          {unreadSupportTicketsCount > 0 && (
+                            <span className="text-[10px] bg-[#3A60AA] text-white px-1.5 py-0.5 rounded-full font-bold">
+                              {unreadSupportTicketsCount > 99 ? '99+' : unreadSupportTicketsCount}
+                            </span>
+                          )}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -421,17 +446,34 @@ export const Header: React.FC = () => {
             </div>
           )}
 
-          {/* Admin Panel Direct Link (Desktop when sidebar is expanded) */}
+          {/* Admin Panel & Support Direct Links (Desktop when sidebar is expanded) */}
           {!isDesktopSidebarCollapsed && currentUser.isAdmin && !currentUser.isDemoUser && (
-            <button
-              type="button"
-              onClick={() => setAdminModalOpen(true)}
-              className="hidden lg:flex items-center gap-1 bg-[#3A60AA] hover:bg-[#2E4D8A] text-white rounded-xl px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer shadow-xs"
-              title={t('Admin Dashboard', 'لوحة التحكم للمشرف')}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>{t('Admin', 'الإشراف')}</span>
-            </button>
+            <div className="hidden lg:flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAdminModalOpen(true)}
+                className="flex items-center gap-1 bg-[#3A60AA] hover:bg-[#2E4D8A] text-white rounded-xl px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                title={t('Admin Dashboard', 'لوحة التحكم للمشرف')}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>{t('Admin', 'الإشراف')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSupportDashboardOpen(true)}
+                className="flex items-center gap-1.5 bg-blue-50 dark:bg-[#142578] hover:bg-blue-100 dark:hover:bg-[#1B3088] text-[#06135B] dark:text-white rounded-xl px-2.5 py-1.5 text-xs font-bold transition-colors cursor-pointer border border-blue-200 dark:border-[#1F3590]"
+                title={t('Support Dashboard', 'لوحة تحكم الدعم')}
+              >
+                <Shield className="w-3.5 h-3.5 text-[#3A60AA] dark:text-[#B9C9E0]" />
+                <span>{t('Support', 'الدعم')}</span>
+                {unreadSupportTicketsCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full text-[10px] font-bold bg-[#3A60AA] text-white">
+                    {unreadSupportTicketsCount > 99 ? '99+' : unreadSupportTicketsCount}
+                  </span>
+                )}
+              </button>
+            </div>
           )}
 
           {/* Notifications Bell */}

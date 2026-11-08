@@ -720,4 +720,162 @@ export function formatTimeRange12Hour(
   return `${formatTime12Hour(startTime, lang)} – ${formatTime12Hour(endTime, lang)}`;
 }
 
+/**
+ * Support Ticket System Types
+ */
+export type SupportTicketCategory =
+  | 'general_question'
+  | 'technical_issue'
+  | 'account_profile'
+  | 'games_players'
+  | 'bookings_payments'
+  | 'community_guidelines'
+  | 'other';
+
+export type SupportTicketStatus =
+  | 'open'
+  | 'waiting_for_user'
+  | 'resolved';
+
+/**
+ * Legacy status union preserved for backwards compatibility with existing documents
+ */
+export type LegacySupportTicketStatus =
+  | SupportTicketStatus
+  | 'in_progress'
+  | 'closed';
+
+/**
+ * Safely normalizes stored ticket status into the 3 simplified statuses:
+ * - in_progress -> open
+ * - closed -> resolved
+ */
+export function normalizeTicketStatus(status?: string | null): SupportTicketStatus {
+  if (status === 'in_progress') return 'open';
+  if (status === 'closed') return 'resolved';
+  if (status === 'waiting_for_user') return 'waiting_for_user';
+  if (status === 'resolved') return 'resolved';
+  return 'open';
+}
+
+export type SupportTicketPriority =
+  | 'low'
+  | 'normal'
+  | 'high'
+  | 'urgent';
+
+export type SupportTicketOrigin =
+  | 'help_and_support'
+  | 'community_guidelines';
+
+export interface SupportTicketAttachment {
+  id: string;
+  name: string;
+  url: string;
+  size?: number;
+  type?: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  ticketNumber: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  category: SupportTicketCategory;
+  priority?: SupportTicketPriority;
+  status: SupportTicketStatus;
+  subject: string;
+  description: string;
+  origin: SupportTicketOrigin;
+  relatedPlayerId?: string;
+  relatedPlayerName?: string;
+  relatedGameId?: string;
+  relatedGameTitle?: string;
+  attachments?: SupportTicketAttachment[];
+  assignedTo?: string;
+  assignedStaffName?: string;
+  language: 'en' | 'ar';
+  createdAt: string;
+  updatedAt: string;
+  lastReplyAt?: string;
+  lastReplyBy?: 'user' | 'support';
+  unreadByUser?: boolean;
+  unreadBySupport?: boolean;
+  adminReviewedAt?: string;
+}
+
+/**
+ * Evaluates whether a ticket requires administrator attention.
+ * Returns true if the ticket is unread/unreviewed by support staff and is not resolved.
+ * Handles concurrent updates safely: if a newer user reply arrived after an admin review, it requires attention.
+ */
+export function isTicketUnreadByAdmin(ticket: SupportTicket): boolean {
+  if (ticket.status === 'resolved') return false;
+
+  // If a newer user reply exists after the admin reviewed the ticket, it requires attention
+  if (ticket.lastReplyBy === 'user' && ticket.lastReplyAt && ticket.adminReviewedAt) {
+    if (new Date(ticket.lastReplyAt).getTime() > new Date(ticket.adminReviewedAt).getTime()) {
+      return true;
+    }
+  }
+
+  // Explicit unread flag set on ticket creation or user reply
+  if (ticket.unreadBySupport === true) return true;
+
+  // If unreadBySupport is false and no newer user reply, it is reviewed
+  if (ticket.unreadBySupport === false) return false;
+
+  // Fallback for existing legacy tickets: require attention if last reply was by user and never reviewed
+  if (ticket.lastReplyBy === 'user' && !ticket.adminReviewedAt) return true;
+
+  return false;
+}
+
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  senderId: string;
+  senderRole: 'user' | 'support';
+  senderName: string;
+  content: string;
+  attachments?: SupportTicketAttachment[];
+  isInternalNote?: boolean;
+  createdAt: string;
+}
+
+export function getTicketCategoryLabel(category: SupportTicketCategory, lang: 'en' | 'ar' = 'en'): string {
+  const labels: Record<SupportTicketCategory, { en: string; ar: string }> = {
+    general_question: { en: 'General Question', ar: 'استفسار عام' },
+    technical_issue: { en: 'Technical Issue', ar: 'مشكلة تقنية' },
+    account_profile: { en: 'Account & Profile', ar: 'الحساب والملف الشخصي' },
+    games_players: { en: 'Games & Players', ar: 'المباريات واللاعبين' },
+    bookings_payments: { en: 'Bookings & Payments', ar: 'الحجوزات والمدفوعات' },
+    community_guidelines: { en: 'Community Guidelines Violation', ar: 'مخالفات إرشادات المجتمع' },
+    other: { en: 'Other', ar: 'أخرى' }
+  };
+  return labels[category]?.[lang] || category;
+}
+
+export function getTicketStatusLabel(status: string | SupportTicketStatus, lang: 'en' | 'ar' = 'en'): string {
+  const normalized = normalizeTicketStatus(status);
+  const labels: Record<SupportTicketStatus, { en: string; ar: string }> = {
+    open: { en: 'Open', ar: 'مفتوحة' },
+    waiting_for_user: { en: 'Waiting for User', ar: 'بانتظار المستخدم' },
+    resolved: { en: 'Resolved', ar: 'تم الحل' }
+  };
+  return labels[normalized]?.[lang] || (lang === 'ar' ? 'مفتوحة' : 'Open');
+}
+
+export function getTicketPriorityLabel(priority?: SupportTicketPriority | string, lang: 'en' | 'ar' = 'en'): string {
+  const labels: Record<string, { en: string; ar: string }> = {
+    low: { en: 'Low', ar: 'منخفضة' },
+    normal: { en: 'Normal', ar: 'عادية' },
+    high: { en: 'High', ar: 'مرتفعة' },
+    urgent: { en: 'Urgent', ar: 'عاجلة' }
+  };
+  return priority && labels[priority] ? labels[priority][lang] : (lang === 'ar' ? 'عادية' : 'Normal');
+}
+
+
 

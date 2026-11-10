@@ -27,7 +27,8 @@ vi.mock('../src/lib/firebase', () => ({
   subscribeToGameChat: vi.fn(() => () => {}),
   subscribeToGameInvitesForGame: vi.fn(() => () => {}),
   calculateGameFinancialSummary: vi.fn(() => ({ totalCollectedKWD: 0, organizerShareKWD: 15 })),
-  isGamePast: vi.fn(() => false)
+  isGamePast: vi.fn(() => false),
+  isGameExpiredKuwait: vi.fn(() => false)
 }));
 
 describe('La3ib Cost-Sharing Settings & UI Verification', () => {

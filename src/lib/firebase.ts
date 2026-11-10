@@ -1788,12 +1788,19 @@ export async function joinGameInFirestore(
         }
       }
 
-      // 2. Authoritative check on game status
+      // 2. Authoritative check on game status & schedule
       if (data.status === 'Cancelled') {
         throw new Error('This game has been cancelled.');
       }
-      if (data.status === 'Completed') {
-        throw new Error('This game has already been completed.');
+      if (data.status === 'Completed' || isGameExpiredKuwait(data)) {
+        if (data.status !== 'Completed') {
+          transaction.update(gameDocRef, {
+            status: 'Completed',
+            updatedAt: serverTimestamp(),
+            updatedAtISO: nowISO
+          });
+        }
+        throw new Error('This game has ended and can no longer be joined.');
       }
       if (data.status === 'Full') {
         throw new Error('This game is full. No more spots are available.');
@@ -2126,6 +2133,14 @@ export async function leaveGameInFirestore(
 
       const data = gameSnap.data();
 
+      // 1b. Reject leaving if game has ended or was cancelled (read-only)
+      if (data.status === 'Cancelled') {
+        throw new Error('This game has been cancelled and is read-only.');
+      }
+      if (data.status === 'Completed' || isGameExpiredKuwait(data)) {
+        throw new Error('This game has already ended and is read-only.');
+      }
+
       // 2. Reject organizer from leaving via normal leave flow
       if (data.organizerId === userId) {
         throw new Error('The game organizer cannot leave the game.');
@@ -2252,6 +2267,129 @@ export async function leaveGameInFirestore(
 }
 
 /**
+ * Calculates the exact scheduled end timestamp (in Unix epoch milliseconds) of a game in Kuwait timezone (Asia/Kuwait).
+ * 
+ * Kuwait operates on UTC+3 (Asia/Kuwait) year-round with no Daylight Saving Time.
+ * 
+ * Game schedule formats:
+ * - date: YYYY-MM-DD (e.g. "2026-11-05" or "2026-11-08")
+ * - startTime: HH:mm (e.g. "20:00" or "23:00")
+ * - endTime: HH:mm (e.g. "21:30" or "01:00")
+ * 
+ * Midnight-crossing rule:
+ * If endTime is chronologically less than or equal to startTime (e.g. 23:00 to 01:00),
+ * the game crosses midnight and concludes on the following calendar day in Kuwait.
+ */
+export function getKuwaitGameEndTimestamp(game: {
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+}): number | null {
+  if (!game.date) return null;
+
+  const dateParts = game.date.trim().split('-');
+  if (dateParts.length !== 3) return null;
+  const year = parseInt(dateParts[0], 10);
+  const month = parseInt(dateParts[1], 10);
+  const day = parseInt(dateParts[2], 10);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+
+  let startStr = (game.startTime || '00:00').trim();
+  let endStr = (game.endTime || '').trim();
+
+  // If no endTime provided, default to startTime + 90 minutes
+  if (!endStr) {
+    if (startStr) {
+      const [sh, sm] = startStr.split(':').map(v => parseInt(v, 10));
+      if (!isNaN(sh)) {
+        const totalMin = sh * 60 + (isNaN(sm) ? 0 : sm) + 90;
+        const eh = Math.floor(totalMin / 60) % 24;
+        const em = totalMin % 60;
+        endStr = `${eh < 10 ? '0' : ''}${eh}:${em < 10 ? '0' : ''}${em}`;
+      } else {
+        endStr = '23:59';
+      }
+    } else {
+      endStr = '23:59';
+    }
+  }
+
+  const [sH, sM] = startStr.split(':').map(v => parseInt(v, 10));
+  const [eH, eM] = endStr.split(':').map(v => parseInt(v, 10));
+  const startMin = (isNaN(sH) ? 0 : sH) * 60 + (isNaN(sM) ? 0 : sM);
+  const endMin = (isNaN(eH) ? 23 : eH) * 60 + (isNaN(eM) ? 59 : eM);
+
+  // Check if game crosses midnight (endTime <= startTime)
+  let endYear = year;
+  let endMonth = month;
+  let endDay = day;
+
+  if (endMin <= startMin && game.startTime) {
+    // Crosses midnight: add 1 day to end date
+    const nextDate = new Date(Date.UTC(year, month - 1, day + 1));
+    endYear = nextDate.getUTCFullYear();
+    endMonth = nextDate.getUTCMonth() + 1;
+    endDay = nextDate.getUTCDate();
+  }
+
+  const pad = (n: number) => (n < 10 ? '0' + n : String(n));
+  const isoKuwait = `${endYear}-${pad(endMonth)}-${pad(endDay)}T${pad(isNaN(eH) ? 23 : eH)}:${pad(isNaN(eM) ? 59 : eM)}:00+03:00`;
+  const parsed = Date.parse(isoKuwait);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Returns true if a game has concluded in Kuwait timezone (Asia/Kuwait)
+ * or is already marked Completed/Cancelled.
+ */
+export function isGameExpiredKuwait(game: {
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  status?: string;
+}): boolean {
+  if (game.status === 'Completed' || game.status === 'Cancelled') {
+    return true;
+  }
+  const endTimestamp = getKuwaitGameEndTimestamp(game);
+  if (endTimestamp === null) {
+    if (!game.date) return false;
+    const nowInKuwait = new Date(Date.now() + 3 * 3600 * 1000);
+    const todayKuwaitStr = nowInKuwait.toISOString().split('T')[0];
+    return game.date < todayKuwaitStr;
+  }
+  return Date.now() >= endTimestamp;
+}
+
+const activeSyncingGameIds = new Set<string>();
+
+/**
+ * Transitions an expired game in Cloud Firestore to status 'Completed'.
+ * Guarded against concurrent duplicate syncs.
+ */
+export async function syncExpiredGameInFirestore(gameId: string, currentStatus?: string): Promise<boolean> {
+  if (!dbInstance || !gameId) return false;
+  if (activeSyncingGameIds.has(gameId)) return false;
+  activeSyncingGameIds.add(gameId);
+
+  try {
+    const gameDocRef = doc(dbInstance, 'games', gameId);
+    await updateDoc(gameDocRef, {
+      status: 'Completed',
+      updatedAt: serverTimestamp(),
+      updatedAtISO: new Date().toISOString()
+    });
+    console.log(`[Firestore] Expired game ${gameId} transitioned from ${currentStatus || 'Open'} to Completed.`);
+    return true;
+  } catch (err) {
+    console.warn(`[Firestore] Failed to transition expired game ${gameId} to Completed:`, err);
+    return false;
+  } finally {
+    setTimeout(() => activeSyncingGameIds.delete(gameId), 30000);
+  }
+}
+
+/**
  * Maps a Firestore raw document into the app's Game interface.
  */
 export function mapFirestoreDocToGame(id: string, data: Record<string, any>): Game {
@@ -2324,17 +2462,22 @@ export function mapFirestoreDocToGame(id: string, data: Record<string, any>): Ga
   const participantIds: string[] = participants.map((p) => p.userId).filter(Boolean);
 
   // Authoritative status calculation:
-  // Cancelled or Completed games remain immutable.
+  // Cancelled games remain immutable.
+  // Expired games in Kuwait automatically transition to Completed.
   // Otherwise, capacity dynamically dictates Full / Almost Full / Open so stale status never breaks joining/leaving.
   let status: GameStatus = rawStatus;
-  if (rawStatus !== 'Cancelled' && rawStatus !== 'Completed') {
-    const currentCount = participants.length;
-    if (currentCount >= maxPlayers) {
-      status = 'Full';
-    } else if (currentCount >= maxPlayers - 1) {
-      status = 'Almost Full';
+  if (rawStatus !== 'Cancelled') {
+    if (rawStatus === 'Completed') {
+      status = 'Completed';
     } else {
-      status = 'Open';
+      const currentCount = participants.length;
+      if (currentCount >= maxPlayers) {
+        status = 'Full';
+      } else if (currentCount >= maxPlayers - 1) {
+        status = 'Almost Full';
+      } else {
+        status = 'Open';
+      }
     }
   }
 
@@ -2460,9 +2603,9 @@ export async function updateGameInFirestore(
       throw new Error('Only the game organizer can edit this game.');
     }
 
-    // Cancelled or moderated games cannot be reopened or edited
-    if (data.status === 'Cancelled' || data.moderated === true) {
-      throw new Error('This game has been cancelled or moderated and cannot be edited or reopened.');
+    // Cancelled, completed, or moderated games cannot be reopened or edited
+    if (data.status === 'Cancelled' || data.status === 'Completed' || data.moderated === true) {
+      throw new Error('This game has ended, been cancelled, or moderated and cannot be edited or reopened.');
     }
 
     const currentParticipants = Array.isArray(data.participants) ? data.participants : [];
@@ -2851,7 +2994,7 @@ export async function adminModeratePlayerProfileInFirestore(
   if (!targetUserId) throw new Error('Target user ID is required.');
 
   // Strict field isolation: reject any sensitive or private fields
-  const allowedKeys = new Set(['name', 'nameAr', 'bio', 'avatar', 'favoriteSports', 'skills']);
+  const allowedKeys = new Set(['name', 'nameAr', 'username', 'bio', 'avatar', 'favoriteSports', 'skills']);
   const requestedKeys = Object.keys(updates);
   const forbiddenKeys = requestedKeys.filter(k => !allowedKeys.has(k));
   if (forbiddenKeys.length > 0) {
@@ -2861,6 +3004,52 @@ export async function adminModeratePlayerProfileInFirestore(
   const payload: Record<string, any> = {
     updatedAt: new Date().toISOString()
   };
+
+  if (updates.username !== undefined) {
+    const rawUsername = updates.username.trim().replace(/^@/, '');
+    const validation = validateUsername(rawUsername);
+    if (!validation.valid) {
+      throw new Error(validation.error || 'Invalid username format.');
+    }
+    const mod = moderateText(rawUsername);
+    if (!mod.allowed) {
+      throw new Error(mod.explanationEn || 'Username violates safety guidelines.');
+    }
+
+    const newNorm = normalizeUsername(rawUsername);
+    const userDocRef = doc(dbInstance, 'users', targetUserId);
+    const userSnap = await getDoc(userDocRef);
+    const currentUsername = userSnap.data()?.username || '';
+    const oldNorm = currentUsername ? normalizeUsername(currentUsername) : null;
+
+    if (newNorm !== oldNorm) {
+      const newUsernameRef = doc(dbInstance, 'usernames', newNorm);
+      const newSnap = await getDoc(newUsernameRef);
+      if (newSnap.exists()) {
+        const uData = newSnap.data();
+        if (uData.uid !== targetUserId) {
+          throw new Error(`Username "@${rawUsername}" is already taken by another athlete.`);
+        }
+      }
+
+      // Reserve new username and release old username document atomically
+      const nowISO = new Date().toISOString();
+      const batch = writeBatch(dbInstance);
+      if (oldNorm) {
+        batch.delete(doc(dbInstance, 'usernames', oldNorm));
+      }
+      batch.set(newUsernameRef, {
+        uid: targetUserId,
+        username: rawUsername,
+        normalized: newNorm,
+        createdAt: nowISO,
+        updatedAt: nowISO
+      });
+      await batch.commit();
+    }
+
+    payload.username = rawUsername;
+  }
 
   if (updates.name !== undefined) {
     const mod = moderateText(updates.name);
@@ -3025,17 +3214,48 @@ export function subscribeToDiscoverGames(
   const unsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      console.log(`[Firestore Discover] Real-time snapshot received: ${snapshot.docs.length} open games`);
-      const mappedGames: Game[] = snapshot.docs.map(docSnap => 
-        mapFirestoreDocToGame(docSnap.id, docSnap.data())
-      );
+      console.log(`[Firestore Discover] Real-time snapshot received: ${snapshot.docs.length} raw games`);
+      
+      const activeGames: Game[] = [];
+      const expiredToSync: { id: string; rawStatus: string }[] = [];
+
+      for (const docSnap of snapshot.docs) {
+        const rawData = docSnap.data();
+        const mapped = mapFirestoreDocToGame(docSnap.id, rawData);
+        const expired = isGameExpiredKuwait({
+          date: mapped.date,
+          startTime: mapped.startTime,
+          endTime: mapped.endTime,
+          status: rawData.status
+        });
+
+        // Past games, Completed games, and Cancelled games are strictly excluded from Discover and Map
+        if (expired || mapped.status === 'Completed' || mapped.status === 'Cancelled') {
+          if (rawData.status !== 'Completed' && rawData.status !== 'Cancelled') {
+            expiredToSync.push({ id: docSnap.id, rawStatus: rawData.status });
+          }
+          continue;
+        }
+
+        activeGames.push(mapped);
+      }
+
+      // Automatically transition eligible expired games to Completed in Firestore
+      if (expiredToSync.length > 0) {
+        for (const item of expiredToSync) {
+          syncExpiredGameInFirestore(item.id, item.rawStatus).catch(err => {
+            console.warn(`[Firestore Discover] Auto-transition notice for expired game ${item.id}:`, err);
+          });
+        }
+      }
+
       // Client-side sort: date (ascending), then startTime (ascending)
-      mappedGames.sort((a, b) => {
+      activeGames.sort((a, b) => {
         const dateCmp = (a.date || '').localeCompare(b.date || '');
         if (dateCmp !== 0) return dateCmp;
         return (a.startTime || '').localeCompare(b.startTime || '');
       });
-      onData(mappedGames);
+      onData(activeGames);
     },
     (err: any) => {
       console.error('[Firestore Discover] Real-time listener error:', {
@@ -3055,26 +3275,11 @@ export function subscribeToDiscoverGames(
 }
 
 /**
- * Evaluates whether a game's scheduled date and start time has passed.
- * Consistently parses existing date (YYYY-MM-DD) and startTime (HH:mm).
+ * Evaluates whether a game's scheduled end time in Kuwait has passed,
+ * or if it is marked Completed/Cancelled.
  */
-export function isGamePast(game: { date?: string; startTime?: string }): boolean {
-  if (!game.date) return false;
-  try {
-    let timeStr = (game.startTime || '00:00').trim();
-    if (/^\d:\d{2}$/.test(timeStr)) {
-      timeStr = '0' + timeStr;
-    }
-    const fullTimeStr = timeStr.includes(':') && timeStr.split(':').length === 2 ? `${timeStr}:00` : timeStr;
-    const gameDateTime = new Date(`${game.date}T${fullTimeStr}`);
-    if (!isNaN(gameDateTime.getTime())) {
-      return gameDateTime.getTime() < Date.now();
-    }
-  } catch {
-    // Fallback if parsing fails
-  }
-  const todayStr = new Date().toISOString().split('T')[0];
-  return (game.date || '') < todayStr;
+export function isGamePast(game: { date?: string; startTime?: string; endTime?: string; status?: GameStatus }): boolean {
+  return isGameExpiredKuwait(game);
 }
 
 /**
@@ -3464,6 +3669,18 @@ export async function sendGameChatMessage(
   const rateResult = checkRateLimitAndSpam(currentUser.uid, message.text);
   if (!rateResult.allowed) {
     throw new Error(rateResult.explanationEn || 'Message rate limit exceeded. Please wait a moment.');
+  }
+
+  // 3. Game Status Check: Cancelled and Completed games are read-only
+  const gameDocRef = doc(dbInstance, 'games', gameId);
+  const gameSnap = await getDoc(gameDocRef);
+  if (!gameSnap.exists()) {
+    throw new Error('Game does not exist or has been removed.');
+  }
+  const gameData = gameSnap.data();
+  const isAdminUser = await checkIsAdminInFirestore();
+  if (!isAdminUser && (gameData.status === 'Cancelled' || gameData.status === 'Completed' || isGameExpiredKuwait(gameData))) {
+    throw new Error('This game has ended or was cancelled. Sending messages is disabled.');
   }
 
   const messagesCol = collection(dbInstance, 'games', gameId, 'messages');

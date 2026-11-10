@@ -133,7 +133,8 @@ import {
   unbanPlayerInFirestore,
   deletePlayerInFirestore,
   adminEditGameInFirestore,
-  adminModeratePlayerProfileInFirestore
+  adminModeratePlayerProfileInFirestore,
+  isGameExpiredKuwait
 } from '../lib/firebase';
 import type { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
@@ -2016,8 +2017,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error('Game not found.');
       }
 
-      if (target.status === 'Cancelled') {
-        throw new Error('This game has been cancelled.');
+      if (target.status === 'Cancelled' || target.status === 'Completed' || isGameExpiredKuwait(target)) {
+        throw new Error(language === 'ar' ? 'هذه المباراة انتهت أو ألغيت ولا يمكن الانضمام إليها.' : 'This game has ended or was cancelled and cannot be joined.');
       }
 
       // Effective participant user ID: real Firebase UID if authenticated, or demo user ID if in Demo Mode
@@ -2165,8 +2166,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('The game organizer cannot leave the game.');
     }
 
-    if (target.status === 'Cancelled') {
-      throw new Error('This game has been cancelled.');
+    if (target.status === 'Cancelled' || target.status === 'Completed' || isGameExpiredKuwait(target)) {
+      throw new Error(language === 'ar' ? 'هذه المباراة انتهت أو ألغيت وهي للعرض فقط.' : 'This game has ended or was cancelled and is read-only.');
     }
 
     // Client-side quick check
@@ -2226,6 +2227,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Chat message
   const sendChatMessage = async (gameId: string, text: string, isAnnouncement: boolean = false): Promise<void> => {
     if (!text.trim()) return;
+
+    // Game Status Check: Cancelled and Completed games are read-only
+    const targetGame = games.find(g => g.id === gameId) || (myGames && myGames.find(g => g.id === gameId));
+    if (targetGame && !currentUser.isAdmin && (targetGame.status === 'Cancelled' || targetGame.status === 'Completed' || isGameExpiredKuwait(targetGame))) {
+      throw new Error(language === 'ar' ? 'المباراة منتهية أو ملغاة. إرسال الرسائل معطل.' : 'This game has ended or was cancelled. Sending messages is disabled.');
+    }
 
     // Authenticated Mode: persist real-time message to Cloud Firestore subcollection
     if (firebaseUser && !isDemoActive) {
@@ -2868,7 +2875,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (target.status === 'Cancelled') {
-      throw new Error('This game is already cancelled.');
+      throw new Error(language === 'ar' ? 'هذه المباراة ملغاة بالفعل.' : 'This game is already cancelled.');
+    }
+    if (target.status === 'Completed' || isGameExpiredKuwait(target)) {
+      throw new Error(language === 'ar' ? 'لا يمكن إلغاء مباراة مكتملة أو منتهية.' : 'Cannot cancel a completed or ended game.');
     }
 
     if (authStatus === 'authenticated' && !isDemoActive && firebaseUser) {
@@ -4052,6 +4062,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (pUid === targetUserId) {
         return {
           ...p,
+          ...(input.username !== undefined ? { username: input.username } : {}),
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.nameAr !== undefined ? { nameAr: input.nameAr } : {}),
           ...(input.bio !== undefined ? { bio: input.bio } : {}),
@@ -4066,10 +4077,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFirestorePlayers(updateProfileFn);
     setDemoPlayers(updateProfileFn);
 
+    setCurrentUser(prev => {
+      const prevUid = prev?.uid || prev?.id;
+      if (prev && prevUid === targetUserId) {
+        return {
+          ...prev,
+          ...(input.username !== undefined ? { username: input.username } : {}),
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.nameAr !== undefined ? { nameAr: input.nameAr } : {}),
+          ...(input.bio !== undefined ? { bio: input.bio } : {}),
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+          ...(input.favoriteSports !== undefined ? { favoriteSports: input.favoriteSports } : {}),
+          ...(input.skills !== undefined ? { skills: input.skills } : {})
+        };
+      }
+      return prev;
+    });
+
     setSelectedPlayerProfile(prev => {
       if (prev && (prev.uid === targetUserId || prev.id === targetUserId)) {
         return {
           ...prev,
+          ...(input.username !== undefined ? { username: input.username } : {}),
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.nameAr !== undefined ? { nameAr: input.nameAr } : {}),
           ...(input.bio !== undefined ? { bio: input.bio } : {}),

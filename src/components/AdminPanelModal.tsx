@@ -56,7 +56,9 @@ import {
   isFirebaseConfigured, 
   testFirebaseConnection,
   FirebaseTestReport,
-  fetchTargetModerationHistory
+  fetchTargetModerationHistory,
+  validateUsername,
+  checkUsernameAvailability
 } from '../lib/firebase';
 import { 
   migrateLocalStateToFirestore, 
@@ -711,8 +713,36 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
     const { user, formData, removeAvatar } = adminProfileModerationDialog;
     const targetUserId = user.uid || user.id;
 
+    if (formData.username !== undefined && formData.username.trim() !== '') {
+      const cleanUsername = formData.username.trim();
+      const val = validateUsername(cleanUsername);
+      if (!val.valid) {
+        setAdminProfileModerationDialog(prev => prev ? {
+          ...prev,
+          error: val.error || t('Invalid username format.', 'تنسيق اسم المستخدم غير صالح.')
+        } : null);
+        return;
+      }
+
+      if (cleanUsername.toLowerCase() !== (user.username || '').toLowerCase()) {
+        try {
+          const avail = await checkUsernameAvailability(cleanUsername, targetUserId);
+          if (!avail.available) {
+            setAdminProfileModerationDialog(prev => prev ? {
+              ...prev,
+              error: avail.error || t('Username is already taken.', 'اسم المستخدم مأخوذ بالفعل.')
+            } : null);
+            return;
+          }
+        } catch {
+          // If offline or check fails, allow proceeding so backend catches it
+        }
+      }
+    }
+
     const payload: AdminProfileModerationInput = {
       ...formData,
+      ...(formData.username ? { username: formData.username.trim() } : {}),
       avatar: removeAvatar ? DEFAULT_GUEST_AVATAR : (formData.avatar || user.avatar)
     };
 
@@ -962,7 +992,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
         </div>
 
         {/* Global Feedback & Error Banners */}
-        <div className="px-6 pt-3 empty:hidden">
+        <div className="px-3.5 sm:px-6 pt-3 empty:hidden">
           {actionError && (
             <div className="p-3 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-800 dark:text-red-200 flex items-start justify-between gap-2 mb-2">
               <div className="flex items-start gap-2">
@@ -988,7 +1018,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
         </div>
 
         {/* Admin Content Area */}
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-3.5 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6">
           {/* ========================================================================= */}
           {/* SECTION 1: OVERVIEW & TELEMETRY                                          */}
           {/* ========================================================================= */}
@@ -1464,11 +1494,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                     const isRosterExpanded = expandedRosterGameId === g.id;
 
                     return (
-                      <div key={g.id} className="p-4 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] space-y-3 text-xs">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div key={g.id} className="p-3.5 sm:p-4 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] space-y-3 text-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 min-w-0">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-slate-900 dark:text-white text-sm">{g.title}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-slate-900 dark:text-white text-sm break-words">{g.title}</span>
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 g.status === 'Cancelled' 
                                   ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800' 
@@ -1480,21 +1510,21 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                               </span>
                               {hasOpenReport && (
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-200 border border-red-200 dark:border-red-700 flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                  <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400 shrink-0" />
                                   <span>{t('Active Safety Report', 'بلاغ أمان معلق')}</span>
                                 </span>
                               )}
                             </div>
 
-                            <p className="text-slate-600 dark:text-slate-400 mt-1">
+                            <p className="text-slate-600 dark:text-slate-400 mt-1 break-words">
                               {g.courtName} • <span className="text-slate-800 dark:text-slate-300 font-semibold">{g.area}</span> • {g.date} {formatTimeRange12Hour(g.startTime, g.endTime, language)}
                             </p>
-                            <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
+                            <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5 break-words">
                               {t('Organizer:', 'المنظم:')} <strong className="text-slate-800 dark:text-slate-300">{g.organizer.name}</strong> (@{g.organizer.username})
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200 dark:border-[#22304E]">
                             <button
                               type="button"
                               onClick={() => setAdminGameEditDialog({
@@ -1517,7 +1547,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                   costSharing: g.costSharing ? { ...g.costSharing } : undefined
                                 }
                               })}
-                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                              className="flex-1 sm:flex-none justify-center px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <Edit3 className="w-3.5 h-3.5 text-blue-500" />
                               <span>{t('Edit Match', 'تعديل المباراة')}</span>
@@ -1525,7 +1555,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
 
                             <button
                               onClick={() => setExpandedRosterGameId(isRosterExpanded ? null : g.id)}
-                              className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#131C31] hover:bg-slate-100 dark:hover:bg-[#22304E] border border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                              className="flex-1 sm:flex-none justify-center px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#131C31] hover:bg-slate-100 dark:hover:bg-[#22304E] border border-slate-200 dark:border-[#22304E] text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <Users className="w-3.5 h-3.5 text-slate-400" />
                               <span>{t('Roster', 'الكشف')} ({g.participants.length})</span>
@@ -1535,7 +1565,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                             <button
                               onClick={() => setGameCancelDialog({ gameId: g.id, gameTitle: g.title, reason: 'Community safety / policy violation intervention' })}
                               disabled={g.status === 'Cancelled'}
-                              className={`px-3 py-1.5 font-bold text-xs rounded-lg transition-colors cursor-pointer ${
+                              className={`flex-1 sm:flex-none justify-center px-3 py-1.5 font-bold text-xs rounded-lg transition-colors cursor-pointer ${
                                 g.status === 'Cancelled' 
                                   ? 'bg-slate-100 dark:bg-[#131C31] text-slate-400 border border-slate-200 dark:border-[#22304E] cursor-not-allowed'
                                   : 'bg-red-50 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
@@ -1681,17 +1711,17 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                     const priorUserLogs = moderationLogs.filter(l => l.targetId === u.id || (u.uid && l.targetId === u.uid));
 
                     return (
-                      <div key={u.id} className="p-3.5 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] flex flex-wrap items-center justify-between text-xs gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
+                      <div key={u.id} className="p-3.5 sm:p-4 bg-slate-50 dark:bg-[#1B253D] rounded-xl border border-slate-200 dark:border-[#22304E] flex flex-col md:flex-row md:items-center justify-between text-xs gap-3.5 min-w-0">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1 w-full md:w-auto">
                           <img 
                             src={u.avatar} 
                             alt={u.name} 
                             className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0" 
                             onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                           />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-bold text-slate-900 dark:text-white truncate">{u.name}</p>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                              <p className="font-bold text-slate-900 dark:text-white break-words">{u.name}</p>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">@{u.username}</span>
                               {u.isAdmin && (
                                 <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-bold">
@@ -1699,32 +1729,32 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                 </span>
                               )}
                               {isBanned && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1 shrink-0">
                                   <Ban className="w-2.5 h-2.5" />
                                   <span>{u.banExpiresAt ? t('Banned (Temp)', 'محظور (مؤقت)') : t('Banned', 'محظور')}</span>
                                 </span>
                               )}
                             </div>
-                            <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-0.5">
+                            <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-0.5 break-words">
                               {u.area} • <strong className="text-amber-500">★ {u.rating ? u.rating.toFixed(1) + '/5' : '—'}</strong> Rating • {u.gamesHosted} hosted • {u.gamesPlayed} played
                             </p>
                             {isBanned && u.banReason && (
-                              <p className="text-rose-600 dark:text-rose-400 text-[10px] font-medium mt-0.5">
+                              <p className="text-rose-600 dark:text-rose-400 text-[10px] font-medium mt-0.5 break-words">
                                 {t('Ban Reason:', 'سبب الحظر:')} {u.banReason}
                                 {u.banExpiresAt && ` (${t('Expires:', 'ينتهي:')} ${new Date(u.banExpiresAt).toLocaleDateString()})`}
                               </p>
                             )}
                             {priorUserLogs.length > 0 && (
                               <p className="text-amber-600 dark:text-amber-400 text-[10px] font-semibold mt-0.5 flex items-center gap-1">
-                                <AlertCircle className="w-3 h-3" />
+                                <AlertCircle className="w-3 h-3 shrink-0" />
                                 <span>{priorUserLogs.length} {t('previous moderation action(s) on file', 'إجراء إشرافي سابق في السجل')}</span>
                               </p>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                          <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full md:w-auto md:justify-end pt-2.5 md:pt-0 border-t md:border-t-0 border-slate-200 dark:border-[#22304E]">
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border shrink-0 ${
                             isRestricted 
                               ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
                               : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
@@ -1743,6 +1773,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                 onClick={() => setAdminProfileModerationDialog({
                                   user: u,
                                   formData: {
+                                    username: u.username || '',
                                     name: u.name,
                                     nameAr: u.nameAr || '',
                                     bio: u.bio || '',
@@ -1752,7 +1783,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                   },
                                   removeAvatar: false
                                 })}
-                                className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1 transition-colors cursor-pointer"
+                                className="flex-1 sm:flex-none justify-center px-2 py-1 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1 transition-colors cursor-pointer"
                               >
                                 <Edit3 className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                                 <span>{t('Moderate Profile', 'إشراف الملف')}</span>
@@ -1766,7 +1797,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                   currentCanOrganize: !isRestricted,
                                   reason: isRestricted ? 'Host privilege restored after review' : 'Restricted host privilege due to community guidelines'
                                 })}
-                                className={`px-2 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                className={`flex-1 sm:flex-none justify-center px-2 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                                   isRestricted 
                                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                                     : 'bg-slate-200 hover:bg-slate-300 dark:bg-[#131C31] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300'
@@ -1780,7 +1811,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                   type="button"
                                   onClick={() => handleUnbanPlayer(u.id, u.name)}
                                   disabled={Boolean(actionLoadingMap[u.id])}
-                                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
+                                  className="flex-1 sm:flex-none justify-center px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
                                 >
                                   {actionLoadingMap[u.id] ? t('Unbanning...', 'جارٍ الإلغاء...') : t('Unban Player', 'رفع الحظر')}
                                 </button>
@@ -1796,7 +1827,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                     reason: ''
                                   })}
                                   disabled={Boolean(actionLoadingMap[u.id])}
-                                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
+                                  className="flex-1 sm:flex-none justify-center px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
                                 >
                                   {t('Ban Player', 'حظر اللاعب')}
                                 </button>
@@ -1812,7 +1843,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                                   reason: ''
                                 })}
                                 disabled={Boolean(actionLoadingMap[u.id])}
-                                className="px-2 py-1 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-colors cursor-pointer flex items-center gap-1"
+                                className="flex-1 sm:flex-none justify-center px-2 py-1 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-colors cursor-pointer flex items-center gap-1"
                                 title={t('Permanently Delete Player Account', 'حذف حساب اللاعب نهائياً')}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1911,10 +1942,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
                           </span>
                         </div>
 
-                        <p className="text-slate-700 dark:text-slate-300">
-                          <strong className="text-slate-500 dark:text-slate-400">Target ID:</strong> <span className="font-mono text-slate-900 dark:text-white">{log.targetId}</span>
+                        <p className="text-slate-700 dark:text-slate-300 break-words">
+                          <strong className="text-slate-500 dark:text-slate-400">Target ID:</strong> <span className="font-mono text-slate-900 dark:text-white break-all">{log.targetId}</span>
                           {log.reportId && (
-                            <span className="ml-2 text-slate-500 dark:text-slate-400 font-mono text-[11px]">(Ref: {log.reportId})</span>
+                            <span className="ml-2 text-slate-500 dark:text-slate-400 font-mono text-[11px] break-all">(Ref: {log.reportId})</span>
                           )}
                         </p>
 
@@ -3120,6 +3151,33 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
 
             {/* Profile Fields */}
             <div className="space-y-3.5 text-xs">
+              {/* Username (@handle) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block">
+                    {t('Username (@handle)', 'اسم المستخدم (@)')}
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    {t('3–25 chars, letters, numbers, underscores', '3-25 حرفاً وأرقام و_')}
+                  </span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold select-none text-xs">
+                    @
+                  </span>
+                  <input
+                    type="text"
+                    value={adminProfileModerationDialog.formData.username ?? ''}
+                    onChange={(e) => setAdminProfileModerationDialog(prev => prev ? {
+                      ...prev,
+                      formData: { ...prev.formData, username: e.target.value.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '') }
+                    } : null)}
+                    placeholder="username"
+                    className="w-full bg-slate-50 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] rounded-xl pl-7 rtl:pl-3 rtl:pr-7 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+              </div>
+
               {/* Display Name */}
               <div className="space-y-1">
                 <label className="font-semibold text-slate-700 dark:text-slate-300 block">

@@ -744,7 +744,7 @@ export const CreateGameModal: React.FC = () => {
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5">
+        <form onSubmit={handleSubmit} className="p-3.5 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5">
           {/* Prominent Restriction Warning Banner */}
           {isRestricted && (
             <div 
@@ -1837,8 +1837,8 @@ export const CreateGameModal: React.FC = () => {
           )}
 
           {/* Submit Action */}
-          <div className="pt-3 border-t border-slate-200 dark:border-[#22304E] flex items-center justify-between gap-4">
-            <div>
+          <div className="pt-3 border-t border-slate-200 dark:border-[#22304E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center sm:block justify-between w-full sm:w-auto">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">
                 {costSharingEnabled ? t('Estimated Share (Estimate):', 'الحصة التقديرية (تقديري):') : t('Cost Sharing:', 'تقاسم التكلفة:')}
               </span>
@@ -1847,7 +1847,7 @@ export const CreateGameModal: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -1856,12 +1856,12 @@ export const CreateGameModal: React.FC = () => {
                   setErrorMessage(null);
                 }}
                 disabled={submitting}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] disabled:opacity-50 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors"
+                className="flex-1 sm:flex-none justify-center px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] disabled:opacity-50 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer text-center"
               >
                 {t('Cancel', 'إلغاء')}
               </button>
 
-              <div className="flex flex-col items-end gap-1">
+              <div className="flex-1 sm:flex-none flex flex-col items-stretch sm:items-end gap-1">
                 <button
                   type="submit"
                   disabled={isRestricted || isPrivilegeLoading || submitting}
@@ -1871,7 +1871,7 @@ export const CreateGameModal: React.FC = () => {
                       e.preventDefault();
                     }
                   }}
-                  className={`px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-colors ${
+                  className={`w-full sm:w-auto justify-center px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-colors ${
                     isRestricted || isPrivilegeLoading
                       ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
                       : 'bg-[#3A60AA] hover:bg-[#2E4D8A] text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs'
@@ -1889,7 +1889,7 @@ export const CreateGameModal: React.FC = () => {
                   )}
                 </button>
                 {isRestricted && (
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold text-right rtl:text-left">
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold text-center sm:text-right rtl:sm:text-left">
                     {t('Account restricted from organizing games', 'حسابك مقيد من تنظيم المباريات')}
                   </span>
                 )}

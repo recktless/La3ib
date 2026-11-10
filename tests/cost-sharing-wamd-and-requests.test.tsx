@@ -34,7 +34,8 @@ vi.mock('../src/lib/firebase', () => ({
   subscribeToGameInvitesForGame: vi.fn(() => () => {}),
   subscribeToPaymentLinkRequestsForGame: vi.fn(() => () => {}),
   calculateGameFinancialSummary: vi.fn(() => ({ totalCollectedKWD: 0, organizerShareKWD: 15 })),
-  isGamePast: vi.fn(() => false)
+  isGamePast: vi.fn(() => false),
+  isGameExpiredKuwait: vi.fn(() => false)
 }));
 
 describe('La3ib WAMD Phone Number & Payment Link Requests Test Suite', () => {

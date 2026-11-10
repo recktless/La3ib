@@ -67,7 +67,7 @@ service cloud.firestore {
     match /usernames/{normalizedUsername} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.auth.uid == request.resource.data.uid
+        && (request.auth.uid == request.resource.data.uid || isAdmin())
         && normalizedUsername.size() >= 3
         && normalizedUsername.size() <= 25
         && normalizedUsername.matches('^[a-z0-9_]+$')
@@ -75,8 +75,8 @@ service cloud.firestore {
         && request.resource.data.username is string
         && request.resource.data.createdAt is string;
       allow update: if isSignedIn()
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == request.auth.uid
+        && (resource.data.uid == request.auth.uid || isAdmin())
+        && (request.resource.data.uid == resource.data.uid || isAdmin())
         && request.resource.data.normalized == normalizedUsername;
       allow delete: if isSignedIn()
         && (resource.data.uid == request.auth.uid || isAdmin());
@@ -96,10 +96,10 @@ service cloud.firestore {
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'role', 'canOrganize', 'isBanned', 'banReason', 'banExpiresAt', 'bannedAt', 'bannedBy']))
         )
         ||
-        // Admin moderation: can only edit public non-sensitive profile content and administrative status.
-        // Strictly prohibited from modifying personal/auth information (email, phone, age, privacy, uid, id, username)
+        // Admin moderation: can only edit public non-sensitive profile content, username, and administrative status.
+        // Strictly prohibited from modifying personal/auth information (email, phone, age, privacy, uid, id)
         (isAdmin()
-          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'phone', 'age', 'privacy', 'uid', 'id', 'username']))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'phone', 'age', 'privacy', 'uid', 'id']))
         )
         ||
         // Target player follower, following, friend count, or 5-star rating aggregate update
@@ -321,8 +321,9 @@ service cloud.firestore {
         (
           resource.data.organizerId == request.auth.uid &&
           request.resource.data.organizerId == request.auth.uid &&
-          // Cannot reopen or modify a game that has been cancelled or moderated by an admin
+          // Cannot reopen or modify a game that has been cancelled or completed or moderated by an admin
           resource.data.status != 'Cancelled' &&
+          resource.data.status != 'Completed' &&
           (!('moderated' in resource.data) || resource.data.moderated != true) &&
           // Li3ib Booking Security: Locked court, sport, address, coordinates, date, and times cannot be changed
           (
@@ -377,8 +378,9 @@ service cloud.firestore {
             request.resource.data.participantIds.hasAll(resource.data.participantIds) &&
             request.resource.data.participantIds.size() == resource.data.participantIds.size() + 1
           )) &&
-          // Cannot join a cancelled match
+          // Cannot join a cancelled or completed match
           resource.data.status != 'Cancelled' &&
+          resource.data.status != 'Completed' &&
           // Status transition validity: either stays Open, or turns Almost Full / Full
           (request.resource.data.status in ['Open', 'Almost Full', 'Full'])
         ) ||
@@ -409,10 +411,17 @@ service cloud.firestore {
             resource.data.participantIds.hasAll(request.resource.data.participantIds) &&
             request.resource.data.participantIds.size() == resource.data.participantIds.size() - 1
           )) &&
-          // Cannot leave an already cancelled match
+          // Cannot leave an already cancelled or completed match
           resource.data.status != 'Cancelled' &&
+          resource.data.status != 'Completed' &&
           // Status transition validity: stays Open, Almost Full, or transitions from Full to non-Full
           (request.resource.data.status in ['Open', 'Almost Full', 'Full'])
+        ) ||
+        // Auto-completion or transitioning an expired/ended game to Completed status
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'updatedAtISO']) &&
+          request.resource.data.status == 'Completed' &&
+          resource.data.status != 'Cancelled'
         )
       );
       allow delete: if isSignedIn() && (isAdmin() || resource.data.organizerId == request.auth.uid);
@@ -438,6 +447,7 @@ service cloud.firestore {
 
         // Create: Only the organizer of the game can send invites
         allow create: if isSignedIn()
+          && (isAdmin() || (getGameData().status != 'Cancelled' && getGameData().status != 'Completed'))
           && isValidId(inviteeUserId)
           && request.resource.data.id == inviteeUserId
           && request.resource.data.gameId == gameId
@@ -467,6 +477,7 @@ service cloud.firestore {
           (
             request.auth.uid == inviteeUserId
             && resource.data.status == 'pending'
+            && (isAdmin() || request.resource.data.status == 'declined' || (getGameData().status != 'Cancelled' && getGameData().status != 'Completed'))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt'])
             && request.resource.data.status in ['accepted', 'declined']
             && (
@@ -510,8 +521,12 @@ service cloud.firestore {
 
       // Real-time Game Chat Messages Subcollection (/games/{gameId}/messages/{messageId})
       match /messages/{messageId} {
+        function getGameData() {
+          return get(/databases/$(database)/documents/games/$(gameId)).data;
+        }
+
         function isParticipant() {
-          let gameDoc = get(/databases/$(database)/documents/games/$(gameId)).data;
+          let gameDoc = getGameData();
           return isSignedIn() && (
             isAdmin() ||
             (('organizerId' in gameDoc) && gameDoc.organizerId == request.auth.uid) ||
@@ -522,6 +537,7 @@ service cloud.firestore {
 
         allow read: if isParticipant();
         allow create: if isParticipant()
+          && (isAdmin() || (getGameData().status != 'Cancelled' && getGameData().status != 'Completed'))
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.gameId == gameId
           && request.resource.data.text is string 

@@ -532,7 +532,7 @@ app.post('/api/admin/moderate-player-profile', async (req, res) => {
     }
 
     // Strictly prohibited fields:
-    const prohibitedFields = ['email', 'phone', 'password', 'age', 'privacy', 'uid', 'id', 'username', 'role', 'isAdmin'];
+    const prohibitedFields = ['email', 'phone', 'password', 'age', 'privacy', 'uid', 'id', 'role', 'isAdmin'];
     const invalidKeys = Object.keys(updates).filter(k => prohibitedFields.includes(k));
     if (invalidKeys.length > 0) {
       return res.status(403).json({
@@ -542,12 +542,24 @@ app.post('/api/admin/moderate-player-profile', async (req, res) => {
     }
 
     // Permitted fields only:
-    const allowedFields = ['name', 'bio', 'avatar', 'favoriteSports', 'skills'];
+    const allowedFields = ['name', 'nameAr', 'username', 'bio', 'avatar', 'favoriteSports', 'skills'];
     const sanitizedUpdates: Record<string, any> = {};
     for (const key of allowedFields) {
       if (updates[key] !== undefined) {
         sanitizedUpdates[key] = updates[key];
       }
+    }
+
+    if (sanitizedUpdates.username) {
+      const uStr = String(sanitizedUpdates.username).trim().replace(/^@/, '');
+      if (uStr.length < 3 || uStr.length > 25 || !/^[a-zA-Z0-9_]+$/.test(uStr)) {
+        return res.status(400).json({ success: false, error: 'Username must be between 3 and 25 characters and contain only letters, numbers, and underscores.' });
+      }
+      const mod = moderateText(uStr);
+      if (!mod.allowed) {
+        return res.status(400).json({ success: false, error: mod.explanationEn || 'Username violates safety guidelines.' });
+      }
+      sanitizedUpdates.username = uStr;
     }
 
     if (sanitizedUpdates.name) {

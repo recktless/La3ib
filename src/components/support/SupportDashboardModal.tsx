@@ -252,26 +252,26 @@ export const SupportDashboardModal: React.FC<SupportDashboardModalProps> = ({
       zIndexClass="z-[70]"
     >
       <div 
-        className="relative w-full max-w-5xl bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl transition-colors h-[92dvh] max-h-[92dvh] flex flex-col overflow-hidden min-w-0"
+        className="relative w-full max-w-5xl bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl transition-colors h-[92dvh] max-h-[92dvh] flex flex-col overflow-hidden min-w-0"
         onClick={(e) => e.stopPropagation()}
         dir={language === 'ar' ? 'rtl' : 'ltr'}
       >
         {/* Top Header */}
-        <div className="px-5 py-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-[#09101F]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#06135B] text-white flex items-center justify-center shadow-xs">
+        <div className="px-3.5 sm:px-5 py-3 sm:py-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-[#09101F]">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#06135B] text-white flex items-center justify-center shadow-xs shrink-0">
               <ShieldCheck className="w-5 h-5 text-[#05BCD1]" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 id="support-dashboard-title" className="text-base font-black text-slate-900 dark:text-white">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h2 id="support-dashboard-title" className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
                   {t('Support Staff Dashboard', 'لوحة تحكم فريق الدعم')}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-[#3A60AA] dark:text-[#B9C9E0] border border-blue-200 dark:border-blue-900/60">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-[#3A60AA] dark:text-[#B9C9E0] border border-blue-200 dark:border-blue-900/60 truncate max-w-[150px] sm:max-w-xs font-mono">
                   {userEmail}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate hidden sm:block">
                 {t('Real-time support ticket management for La3ib.', 'إدارة التذاكر الحية وبلاغات المجتمع.')}
               </p>
             </div>

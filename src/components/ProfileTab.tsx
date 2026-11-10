@@ -543,7 +543,7 @@ export const ProfileTab: React.FC = () => {
           )}
 
           {/* Action buttons on banner */}
-          <div className="absolute top-3.5 right-3.5 rtl:right-auto rtl:left-3.5 flex items-center gap-1.5 sm:gap-2 z-10">
+          <div className="absolute top-2.5 sm:top-3.5 right-2.5 sm:right-3.5 rtl:right-auto rtl:left-2.5 sm:rtl:left-3.5 flex items-center gap-1 sm:gap-2 z-10 flex-wrap max-w-[calc(100%-1rem)] justify-end">
             {/* Upload / Change Banner button */}
             <button
               type="button"

@@ -502,6 +502,7 @@ export interface AdminGameEditInput {
 export interface AdminProfileModerationInput {
   name?: string;
   nameAr?: string;
+  username?: string;
   bio?: string;
   avatar?: string;
   favoriteSports?: SportType[];

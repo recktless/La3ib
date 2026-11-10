@@ -30,7 +30,7 @@ import {
   ExternalLink,
   Navigation
 } from 'lucide-react';
-import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary, subscribeToPaymentLinkRequestsForGame } from '../lib/firebase';
+import { subscribeToGameChat, subscribeToGameInvitesForGame, calculateGameFinancialSummary, subscribeToPaymentLinkRequestsForGame, isGameExpiredKuwait } from '../lib/firebase';
 import { 
   ChatMessage, 
   GameInvite, 
@@ -204,6 +204,10 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
     )
   );
   const isParticipant = isOrganizer || isJoined;
+  const isGameExpired = Boolean(game && isGameExpiredKuwait(game));
+  const isGameCompleted = Boolean(game && (game.status === 'Completed' || isGameExpired));
+  const isGameCancelled = Boolean(game && game.status === 'Cancelled');
+  const isGameLocked = isGameCancelled || isGameCompleted;
 
   // Real-time or authorized fetch of WAMD phone number
   useEffect(() => {
@@ -419,8 +423,8 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
       setActionError(t('Only the organizer can cancel this game.', 'فقط منظم المباراة يمكنه إلغاء هذه المباراة.'));
       return;
     }
-    if (game.status === 'Cancelled') {
-      setActionError(t('This game is already cancelled.', 'هذه المباراة ملغاة بالفعل.'));
+    if (isGameLocked) {
+      setActionError(t('This match is already concluded or cancelled.', 'هذه المباراة مكتملة أو ملغاة بالفعل.'));
       return;
     }
 
@@ -444,8 +448,8 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
       setLeaveError(t('The game organizer cannot leave the game. You can cancel the game instead.', 'لا يمكن لمنظم المباراة المغادرة كلاعب. يمكنك إلغاء المباراة بدلاً من ذلك.'));
       return;
     }
-    if (game.status === 'Cancelled') {
-      setLeaveError(t('This game has been cancelled.', 'هذه المباراة ملغاة بالفعل.'));
+    if (isGameLocked) {
+      setLeaveError(t('This match has ended or was cancelled.', 'انتهت هذه المباراة أو تم إلغاؤها.'));
       return;
     }
     setIsLeaving(true);
@@ -465,6 +469,10 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isSendingMessage) return;
+    if (isGameLocked && !currentUser?.isAdmin) {
+      setChatError(t('This match has ended or was cancelled. Chat is read-only.', 'انتهت هذه المباراة أو تم إلغاؤها. المحادثة للقراءة فقط.'));
+      return;
+    }
     const textToSend = chatInput.trim();
     setChatInput('');
     setChatError(null);
@@ -482,6 +490,10 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
   const handleSendAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!announcementInput.trim() || isSendingMessage) return;
+    if (isGameLocked && !currentUser?.isAdmin) {
+      setChatError(t('This match has ended or was cancelled.', 'انتهت هذه المباراة أو تم إلغاؤها.'));
+      return;
+    }
     const textToSend = announcementInput.trim();
     setAnnouncementInput('');
     setShowAnnouncementBox(false);
@@ -532,56 +544,116 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-[#BFDBFE] dark:border-[#22304E] bg-[#EEF4FF] dark:bg-[#0B1120] gap-2 min-w-0">
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
-            <span className="text-xs font-black text-[#1246DF] dark:text-[#05BCD1] uppercase tracking-wider bg-white dark:bg-[#1B253D] border border-[#BFDBFE] dark:border-[#2A3B5C] px-2.5 py-0.5 rounded-full shrink-0">
-              {getSportLabel(game.sport, language)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm sm:text-base md:text-lg font-bold text-slate-900 dark:text-white line-clamp-1 sm:line-clamp-2 break-words leading-tight">
+        <div className="px-3.5 sm:px-6 py-3 sm:py-4 border-b border-[#BFDBFE] dark:border-[#22304E] bg-[#EEF4FF] dark:bg-[#0B1120]">
+          {/* Mobile Layout (< sm): 2-tier hierarchy so sport badge, title, and buttons never collide */}
+          <div className="flex flex-col gap-2.5 sm:hidden">
+            {/* Row 1: Sport Badge + Area + Actions */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-black text-[#1246DF] dark:text-[#05BCD1] uppercase tracking-wider bg-white dark:bg-[#1B253D] border border-[#BFDBFE] dark:border-[#2A3B5C] px-2.5 py-0.5 rounded-full shrink-0">
+                  {getSportLabel(game.sport, language)}
+                </span>
+                <span className="text-[11px] text-[#1246DF] dark:text-[#05BCD1] font-bold truncate">
+                  {getKuwaitAreaLabel(game.area, language)}
+                </span>
+              </div>
+
+              {/* Action Buttons: Share, Report, Close */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleShareClick}
+                  aria-label={t('Share game', 'مشاركة المباراة')}
+                  title={t('Share game', 'مشاركة المباراة')}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#1246DF] dark:hover:text-[#05BCD1] hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
+                >
+                  <Share2 className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => {
+                    setReportDetails('');
+                    setSelectedReportReason('inappropriate_behavior');
+                    setReportFeedback(null);
+                    setShowReportForm(true);
+                  }}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
+                  title={t('Report Game', 'الإبلاغ عن المباراة')}
+                  aria-label={t('Report Game', 'الإبلاغ عن المباراة')}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                </button>
+
+                <button 
+                  onClick={() => setSelectedGameForDetail(null)}
+                  className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label={t('Close', 'إغلاق')}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Row 2: Title & Court Name (Full available width, wraps naturally) */}
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white break-words leading-snug">
                 {game.title}
               </h2>
-              <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 truncate mt-0.5">
-                {game.courtName} • <span className="text-[#1246DF] dark:text-[#05BCD1] font-semibold">{getKuwaitAreaLabel(game.area, language)}</span>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 break-words">
+                {game.courtName}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            {/* Native Share Icon Button with minimum 44px touch target */}
-            <button
-              type="button"
-              onClick={handleShareClick}
-              aria-label={t('Share game', 'مشاركة المباراة')}
-              title={t('Share game', 'مشاركة المباراة')}
-              className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#1246DF] dark:hover:text-[#05BCD1] hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
+          {/* Tablet & Desktop Layout (sm:): Single-row flex layout */}
+          <div className="hidden sm:flex items-center justify-between gap-4 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <span className="text-xs font-black text-[#1246DF] dark:text-[#05BCD1] uppercase tracking-wider bg-white dark:bg-[#1B253D] border border-[#BFDBFE] dark:border-[#2A3B5C] px-2.5 py-0.5 rounded-full shrink-0">
+                {getSportLabel(game.sport, language)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base md:text-lg font-bold text-slate-900 dark:text-white break-words leading-tight">
+                  {game.title}
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate mt-0.5">
+                  {game.courtName} • <span className="text-[#1246DF] dark:text-[#05BCD1] font-semibold">{getKuwaitAreaLabel(game.area, language)}</span>
+                </p>
+              </div>
+            </div>
 
-            {/* Report Button */}
-            <button
-              onClick={() => {
-                setReportDetails('');
-                setSelectedReportReason('inappropriate_behavior');
-                setReportFeedback(null);
-                setShowReportForm(true);
-              }}
-              className="min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px] rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
-              title={t('Report Game', 'الإبلاغ عن المباراة')}
-              aria-label={t('Report Game', 'الإبلاغ عن المباراة')}
-            >
-              <ShieldAlert className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={handleShareClick}
+                aria-label={t('Share game', 'مشاركة المباراة')}
+                title={t('Share game', 'مشاركة المباراة')}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-[#1246DF] dark:hover:text-[#05BCD1] hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
 
-            {/* Close Button */}
-            <button 
-              onClick={() => setSelectedGameForDetail(null)}
-              className="min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center justify-center cursor-pointer shrink-0"
-              aria-label={t('Close', 'إغلاق')}
-            >
-              <X className="w-4 h-4" />
-            </button>
+              <button
+                onClick={() => {
+                  setReportDetails('');
+                  setSelectedReportReason('inappropriate_behavior');
+                  setReportFeedback(null);
+                  setShowReportForm(true);
+                }}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-[#1B253D] transition-colors cursor-pointer shrink-0 active:scale-95"
+                title={t('Report Game', 'الإبلاغ عن المباراة')}
+                aria-label={t('Report Game', 'الإبلاغ عن المباراة')}
+              >
+                <ShieldAlert className="w-4 h-4" />
+              </button>
+
+              <button 
+                onClick={() => setSelectedGameForDetail(null)}
+                className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center justify-center cursor-pointer shrink-0"
+                aria-label={t('Close', 'إغلاق')}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -645,6 +717,31 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
             </button>
           )}
         </div>
+
+        {/* Subtle Status Indicator for Cancelled or Completed / Expired games */}
+        {isGameLocked && (
+          <div className={`mx-4 sm:mx-6 mt-4 p-3 rounded-xl border flex items-center gap-2.5 text-xs ${
+            isGameCancelled
+              ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              : 'bg-slate-100 dark:bg-[#1B253D] border-slate-300 dark:border-[#22304E] text-slate-700 dark:text-slate-300'
+          }`}>
+            {isGameCancelled ? (
+              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            )}
+            <div className="flex-1">
+              <span className="font-bold">
+                {isGameCancelled 
+                  ? t('This match has been cancelled.', 'تم إلغاء هذه المباراة.')
+                  : t('This match has concluded.', 'انتهت هذه المباراة.')}
+              </span>
+              <span className="text-[11px] opacity-80 ms-1.5">
+                • {t('Details and chat history are read-only.', 'التفاصيل وسجل المحادثة للقراءة فقط.')}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Success notification banner if match cancellation succeeds */}
         {actionSuccess && (
@@ -1002,7 +1099,7 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
                     {t('Player Roster', 'قائمة اللاعبين')}
                   </h4>
                   <div className="flex items-center gap-2">
-                    {isOrganizer && game.status !== 'Cancelled' && game.status !== 'Completed' && (
+                    {isOrganizer && !isGameLocked && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1154,7 +1251,7 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
               ) : (
                 <>
                   {/* Pinned announcement banner for organizer */}
-                  {isOrganizer && (
+                  {isOrganizer && !isGameLocked && (
                     <div className="mb-3">
                       {!showAnnouncementBox ? (
                         <button
@@ -1251,28 +1348,39 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Chat Input Bar */}
-                  <form onSubmit={handleSendMessage} className="pt-3 mt-2 border-t border-slate-200 dark:border-[#22304E] flex gap-2">
-                    <input 
-                      type="text"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder={t('Message the match group (parking, jerseys, arrival)...', 'اكتب رسالة للمجموعة (المواقف، الملابس، الوصول)...')}
-                      className="flex-1 bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#1246DF] dark:focus:border-[#05BCD1] rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
-                      disabled={isSendingMessage}
-                    />
-                    <button
-                      type="submit"
-                      disabled={isSendingMessage || !chatInput.trim()}
-                      className="p-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] disabled:opacity-40 text-white font-bold transition-colors cursor-pointer flex items-center justify-center"
-                    >
-                      {isSendingMessage ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-white" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                    </button>
-                  </form>
+                  {/* Chat Input Bar or Read-only Lock Notice */}
+                  {isGameLocked && !currentUser?.isAdmin ? (
+                    <div className="pt-3 mt-2 border-t border-slate-200 dark:border-[#22304E] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-100 dark:bg-[#0B1120] text-slate-500 dark:text-slate-400 text-xs">
+                      <Lock className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>
+                        {isGameCancelled
+                          ? t('This match was cancelled. Chat is read-only.', 'تم إلغاء هذه المباراة. المحادثة للقراءة فقط.')
+                          : t('This match has concluded. Chat is read-only.', 'انتهت هذه المباراة. المحادثة للقراءة فقط.')}
+                      </span>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSendMessage} className="pt-3 mt-2 border-t border-slate-200 dark:border-[#22304E] flex gap-2">
+                      <input 
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder={t('Message the match group (parking, jerseys, arrival)...', 'اكتب رسالة للمجموعة (المواقف، الملابس، الوصول)...')}
+                        className="flex-1 bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-[#22304E] focus:border-[#1246DF] dark:focus:border-[#05BCD1] rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
+                        disabled={isSendingMessage}
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSendingMessage || !chatInput.trim()}
+                        className="p-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] disabled:opacity-40 text-white font-bold transition-colors cursor-pointer flex items-center justify-center"
+                      >
+                        {isSendingMessage ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                      </button>
+                    </form>
+                  )}
                 </>
               )}
             </div>
@@ -1435,42 +1543,48 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
                   {t('Match Administration', 'إدارة وتعديل المباراة')}
                 </h5>
                 <div className="flex flex-wrap gap-2">
-                  {game.status !== 'Cancelled' && game.status !== 'Completed' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreateGamePrefill(game);
-                        setCreateGameModalOpen(true);
-                        setSelectedGameForDetail(null);
-                      }}
-                      className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                      <span>{t('Edit Match & Cost Sharing', 'تعديل المباراة وتقاسم التكلفة')}</span>
-                    </button>
-                  )}
+                  {!isGameLocked ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateGamePrefill(game);
+                          setCreateGameModalOpen(true);
+                          setSelectedGameForDetail(null);
+                        }}
+                        className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>{t('Edit Match & Cost Sharing', 'تعديل المباراة وتقاسم التكلفة')}</span>
+                      </button>
 
-                  {game.status !== 'Cancelled' && game.status !== 'Completed' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInviteError(null);
-                        setShowInviteModal(true);
-                      }}
-                      className="py-2.5 px-4 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>{t('Invite Players', 'دعوة لاعبين')}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteError(null);
+                          setShowInviteModal(true);
+                        }}
+                        className="py-2.5 px-4 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>{t('Invite Players', 'دعوة لاعبين')}</span>
+                      </button>
+
+                      <button
+                        onClick={handleCancelGame}
+                        disabled={isCancelling}
+                        className="py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isCancelling && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        <span>{t('Cancel Match', 'إلغاء المباراة')}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <div className="w-full p-3 rounded-xl bg-slate-100 dark:bg-[#1B253D] border border-slate-200 dark:border-[#22304E] text-slate-500 dark:text-slate-400 text-xs flex items-center gap-2">
+                      <Lock className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>{t('Match administration is locked because this match has ended or was cancelled.', 'إدارة المباراة مقفلة لأن المباراة انتهت أو تم إلغاؤها.')}</span>
+                    </div>
                   )}
-                  <button
-                    onClick={handleCancelGame}
-                    disabled={isCancelling || game.status === 'Cancelled'}
-                    className="py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isCancelling && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>{game.status === 'Cancelled' ? t('Match Cancelled', 'المباراة ملغاة') : t('Cancel Match', 'إلغاء المباراة')}</span>
-                  </button>
                 </div>
               </div>
             </div>
@@ -1505,10 +1619,35 @@ export const GameDetailModal: React.FC<{ initialTab?: 'details' | 'chat' | 'orga
           </div>
 
           <div className="flex items-center gap-2">
-            {game.status === 'Cancelled' ? (
-              <div className="px-5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                <span>{t('Match Cancelled', 'المباراة ملغاة')}</span>
+            {isGameCancelled ? (
+              <div className="flex items-center gap-2">
+                <div className="px-5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                  <span>{t('Match Cancelled', 'المباراة ملغاة')}</span>
+                </div>
+                {isParticipant && (
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1B253D] dark:hover:bg-[#22304E] text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    {t('View Chat', 'عرض الشات')}
+                  </button>
+                )}
+              </div>
+            ) : isGameCompleted ? (
+              <div className="flex items-center gap-2">
+                <div className="px-5 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span>{t('Match Completed', 'المباراة مكتملة')}</span>
+                </div>
+                {isParticipant && (
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className="px-4 py-2.5 rounded-xl bg-[#1246DF] hover:bg-[#0e37b3] text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    {t('View Chat', 'عرض الشات')}
+                  </button>
+                )}
               </div>
             ) : isOrganizer ? (
               <div className="flex items-center gap-2">

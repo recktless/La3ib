@@ -211,14 +211,14 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       zIndexClass="z-[75]"
     >
       <div 
-        className="relative w-full max-w-2xl bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl transition-colors max-h-[90vh] flex flex-col overflow-hidden min-w-0"
+        className="relative w-full max-w-2xl bg-white dark:bg-[#0D1629] border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl transition-colors max-h-[92dvh] flex flex-col overflow-hidden min-w-0"
         onClick={(e) => e.stopPropagation()}
         dir={language === 'ar' ? 'rtl' : 'ltr'}
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
-          <div className="space-y-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+        <div className="p-3.5 sm:p-5 border-b border-slate-200/80 dark:border-slate-800 flex items-start justify-between gap-3 shrink-0">
+          <div className="space-y-1 min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <span className="font-mono text-xs font-black text-[#3A60AA] dark:text-[#B9C9E0]">
                 {ticket.ticketNumber}
               </span>
@@ -229,7 +229,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 {getTicketCategoryLabel(ticket.category, language)}
               </span>
             </div>
-            <h2 id="ticket-detail-title" className="text-base font-bold text-slate-900 dark:text-white truncate">
+            <h2 id="ticket-detail-title" className="text-sm sm:text-base font-bold text-slate-900 dark:text-white break-words line-clamp-2">
               {ticket.subject}
             </h2>
           </div>

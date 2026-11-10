@@ -263,12 +263,12 @@ export const MapLocationPicker: React.FC<MapLocationPickerProps> = ({
         : 'bg-slate-50 dark:bg-[#0B1120] border-slate-200 dark:border-[#22304E]'
     }`}>
       {/* Header Readout */}
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
           <MapPin className="w-3.5 h-3.5 text-[#1246DF] dark:text-[#05BCD1] shrink-0" />
           <span>{t('Location & Coordinates', 'الموقع والإحداثيات')}</span>
         </div>
-        <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400 break-all">
           {formatLatLngDisplay(latLng.latitude, latLng.longitude)}
         </div>
       </div>

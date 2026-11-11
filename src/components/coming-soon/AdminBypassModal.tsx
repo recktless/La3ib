@@ -212,7 +212,7 @@ export const AdminBypassModal: React.FC<AdminBypassModalProps> = ({
                 {t('Administrator Access', 'دخول الإدارة')}
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {t('Enter admin password to open dashboard', 'أدخل كلمة مرور الإدارة لفتح لوحة التحكم')}
+                {t('Enter access code to unlock website', 'أدخل رمز الدخول لفتح الموقع')}
               </p>
             </div>
           </div>

@@ -30,6 +30,7 @@ import { La3ibLogo } from './La3ibLogo';
 export const Header: React.FC = () => {
   const { 
     currentUser, 
+    firebaseUser,
     language, 
     setLanguage, 
     t, 
@@ -70,6 +71,7 @@ export const Header: React.FC = () => {
 
   // Check if user is currently viewing their own profile page
   const isViewingOwnProfile = activeTab === 'profile' && selectedPlayerProfile === null;
+  const isRealAdmin = Boolean(firebaseUser && authStatus === 'authenticated' && currentUser.isAdmin && !currentUser.isDemoUser);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -404,7 +406,7 @@ export const Header: React.FC = () => {
                       <ShieldCheck className="w-4 h-4 text-[#3A60AA] dark:text-[#B9C9E0] shrink-0" />
                       <span>{t('Community & Safety Guidelines', 'إرشادات المجتمع والسلامة')}</span>
                     </button>
-                    {currentUser.isAdmin && !currentUser.isDemoUser && (
+                    {isRealAdmin && (
                       <>
                         <button
                           type="button"
@@ -447,7 +449,7 @@ export const Header: React.FC = () => {
           )}
 
           {/* Admin Panel & Support Direct Links (Desktop when sidebar is expanded) */}
-          {!isDesktopSidebarCollapsed && currentUser.isAdmin && !currentUser.isDemoUser && (
+          {!isDesktopSidebarCollapsed && isRealAdmin && (
             <div className="hidden lg:flex items-center gap-1.5">
               <button
                 type="button"

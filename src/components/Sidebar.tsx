@@ -37,6 +37,7 @@ export const Sidebar: React.FC = () => {
     t, 
     games, 
     currentUser, 
+    firebaseUser,
     authStatus,
     isSidebarOpen, 
     setIsSidebarOpen, 
@@ -51,6 +52,7 @@ export const Sidebar: React.FC = () => {
   } = useApp();
 
   // Mobile drawer animation state: allows smooth slide-out exit animation before unmounting
+  const isRealAdmin = Boolean(firebaseUser && authStatus === 'authenticated' && currentUser.isAdmin && !currentUser.isDemoUser);
   const [shouldRenderDrawer, setShouldRenderDrawer] = React.useState(Boolean(isSidebarOpen));
   const [isDrawerExiting, setIsDrawerExiting] = React.useState(false);
 
@@ -233,7 +235,7 @@ export const Sidebar: React.FC = () => {
             <span>{t('Community Guidelines', 'إرشادات المجتمع')}</span>
           </button>
 
-          {currentUser.isAdmin && !currentUser.isDemoUser && (
+          {isRealAdmin && (
             <>
               <button
                 type="button"

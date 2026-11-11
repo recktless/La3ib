@@ -77,6 +77,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
     setSupportDashboardOpen,
     unreadSupportTicketsCount,
     currentUser,
+    firebaseUser,
+    authStatus,
     games, 
     players, 
     courts, 
@@ -197,7 +199,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
   const [firebaseTestResult, setFirebaseTestResult] = useState<FirebaseTestReport | null>(null);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
 
-  const isRealAdmin = Boolean(currentUser.isAdmin && !currentUser.isDemoUser);
+  const isRealAdmin = Boolean(firebaseUser && authStatus === 'authenticated' && currentUser.isAdmin && !currentUser.isDemoUser);
 
   // Active reports list based on active mode
   const activeReportsList: (ReportDocument | ReportItem)[] = useMemo(() => {
@@ -819,7 +821,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ initialSection
   if (!adminModalOpen) return null;
 
   // Strict Authorization Guard: Only verified administrators can access the Admin Panel
-  if (!currentUser.isAdmin || currentUser.isDemoUser) {
+  if (!firebaseUser || authStatus !== 'authenticated' || !currentUser.isAdmin || currentUser.isDemoUser) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70">
         <div 

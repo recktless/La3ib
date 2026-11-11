@@ -35,7 +35,6 @@ import { LogIn, Ban, AlertCircle, X } from 'lucide-react';
 import { 
   COMING_SOON_MODE, 
   ADMIN_BYPASS_STORAGE_KEY, 
-  ADMIN_BYPASS_EMAIL_KEY,
   AdminAuthState,
   getStoredAdminToken,
   setStoredAdminToken, 
@@ -47,11 +46,12 @@ import {
 import { ComingSoonPage } from './components/coming-soon/ComingSoonPage';
 import { AdminBypassBanner } from './components/coming-soon/AdminBypassBanner';
 
-export const AppContent: React.FC = () => {
+export const AppContent: React.FC<{ onReturnToComingSoon?: () => void }> = ({ onReturnToComingSoon }) => {
   const { 
     activeTab, 
     language, 
     authStatus, 
+    firebaseUser,
     setAuthModalOpen, 
     setAuthModalMode, 
     isAccountBanned,
@@ -214,6 +214,14 @@ export const AppContent: React.FC = () => {
           </aside>
         )}
 
+        {/* Pre-launch Preview Top Banner (with Return to Coming Soon action) */}
+        {COMING_SOON_MODE && onReturnToComingSoon && (
+          <AdminBypassBanner
+            onReturnToComingSoon={onReturnToComingSoon}
+            adminEmail={firebaseUser?.email || undefined}
+          />
+        )}
+
         {/* Top Universal App Header */}
         <Header />
 
@@ -335,17 +343,9 @@ export default function App() {
     }
   });
 
-  const [adminEmail, setAdminEmail] = useState<string | undefined>(() => {
-    try {
-      return sessionStorage.getItem(ADMIN_BYPASS_EMAIL_KEY) || localStorage.getItem(ADMIN_BYPASS_EMAIL_KEY) || undefined;
-    } catch {
-      return undefined;
-    }
-  });
-
   const validationEpochRef = useRef(0);
 
-  // Validate stored admin session on initial load if in 'checking' state
+  // Validate stored website access session on initial load if in 'checking' state
   useEffect(() => {
     if (!COMING_SOON_MODE || adminAuthState !== 'checking') return;
 
@@ -363,7 +363,6 @@ export default function App() {
         if (validationEpochRef.current !== currentEpoch) return;
 
         if (res.status === 'valid') {
-          if (res.email) setAdminEmail(res.email);
           setAdminAuthState('authenticated');
         } else if (res.status === 'invalid') {
           clearStoredAdminToken();
@@ -410,7 +409,7 @@ export default function App() {
   // 3. Full application rendered for authorized visitors or post-launch
   return (
     <AppProvider>
-      <AppContent />
+      <AppContent onReturnToComingSoon={handleReturnToComingSoon} />
     </AppProvider>
   );
 }

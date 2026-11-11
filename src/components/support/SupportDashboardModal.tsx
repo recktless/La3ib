@@ -42,12 +42,17 @@ export const SupportDashboardModal: React.FC<SupportDashboardModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const { currentUser, firebaseUser, language, t } = useApp();
+  const { currentUser, firebaseUser, authStatus, language, t } = useApp();
 
   // Strict Staff Authorization Check:
-  // Must be authenticated with email khalidalami5555@gmail.com or isAdmin == true
-  const userEmail = (firebaseUser?.email || currentUser.email || '').toLowerCase().trim();
-  const isAuthorizedStaff = userEmail === 'khalidalami5555@gmail.com' || Boolean(currentUser.isAdmin);
+  // Must be authenticated via Firebase with email khalidalami5555@gmail.com or isAdmin == true
+  const userEmail = (firebaseUser?.email || '').toLowerCase().trim();
+  const isAuthorizedStaff = Boolean(
+    firebaseUser &&
+    authStatus === 'authenticated' &&
+    !currentUser.isDemoUser &&
+    (userEmail === 'khalidalami5555@gmail.com' || currentUser.isAdmin)
+  );
 
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);

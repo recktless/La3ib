@@ -45,16 +45,15 @@ export function getStoredAdminToken(): string | null {
   }
 }
 
-export function setStoredAdminToken(token: string, email?: string): void {
+export function setStoredAdminToken(token: string): void {
   try {
     const session = getSessionStorage();
     const local = getLocalStorage();
     session?.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
     local?.setItem(ADMIN_BYPASS_STORAGE_KEY, token);
-    if (email) {
-      session?.setItem(ADMIN_BYPASS_EMAIL_KEY, email);
-      local?.setItem(ADMIN_BYPASS_EMAIL_KEY, email);
-    }
+    // Explicitly purge any legacy stored email to prevent administrator impersonation
+    session?.removeItem(ADMIN_BYPASS_EMAIL_KEY);
+    local?.removeItem(ADMIN_BYPASS_EMAIL_KEY);
   } catch {}
 }
 
@@ -70,10 +69,23 @@ export function clearStoredAdminToken(): void {
   } catch {}
 }
 
-export function isAdminSessionActive(): boolean {
+/**
+ * Checks if the pre-launch website access gate is unlocked.
+ * NOTE: This grants public website access ONLY. It NEVER authenticates a user
+ * or grants administrator privileges.
+ */
+export function isWebsiteAccessActive(): boolean {
   const token = getStoredAdminToken();
   if (!token) return false;
   return !isTokenLocallyExpired(token);
+}
+
+/**
+ * @deprecated Use isWebsiteAccessActive() instead.
+ * Preserved for compatibility. Returns whether website access gate is unlocked.
+ */
+export function isAdminSessionActive(): boolean {
+  return isWebsiteAccessActive();
 }
 
 export type AdminAuthState = 'checking' | 'authenticated' | 'unauthenticated';

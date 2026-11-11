@@ -222,7 +222,7 @@ describe('Production Admin Login & Redirect Loop Prevention Suite', () => {
 
   describe('Scenario 11: Logout invalidates the session', () => {
     it('clears stored session and expires cookie with Max-Age=0', async () => {
-      setStoredAdminToken('active-token', 'khalidalami5555@gmail.com');
+      setStoredAdminToken('active-token');
       expect(getStoredAdminToken()).toBe('active-token');
 
       // Call edge logout

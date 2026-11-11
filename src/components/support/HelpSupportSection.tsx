@@ -28,10 +28,15 @@ interface HelpSupportSectionProps {
 export const HelpSupportSection: React.FC<HelpSupportSectionProps> = ({
   onOpenCommunityGuidelines
 }) => {
-  const { currentUser, firebaseUser, language, t, setSupportDashboardOpen, unreadSupportTicketsCount } = useApp();
+  const { currentUser, firebaseUser, authStatus, language, t, setSupportDashboardOpen, unreadSupportTicketsCount } = useApp();
 
-  const userEmail = (firebaseUser?.email || currentUser.email || '').toLowerCase().trim();
-  const isAuthorizedStaff = userEmail === 'khalidalami5555@gmail.com' || Boolean(currentUser.isAdmin);
+  const userEmail = (firebaseUser?.email || '').toLowerCase().trim();
+  const isAuthorizedStaff = Boolean(
+    firebaseUser &&
+    authStatus === 'authenticated' &&
+    !currentUser.isDemoUser &&
+    (userEmail === 'khalidalami5555@gmail.com' || currentUser.isAdmin)
+  );
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isMyTicketsOpen, setIsMyTicketsOpen] = useState(false);
